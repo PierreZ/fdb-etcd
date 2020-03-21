@@ -1,7 +1,18 @@
+buildscript {
+  repositories {
+    mavenCentral()
+  }
+  dependencies {
+    classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.12'
+  }
+}
+
 plugins {
   id 'java'
   id 'application'
+  id 'idea'
   id 'com.github.johnrengelman.shadow' version '5.0.0'
+  id "com.google.protobuf" version "0.8.12"
 }
 
 group = 'fr.pierrezemb'
@@ -51,8 +62,26 @@ test {
   testLogging {
     events 'PASSED', 'FAILED', 'SKIPPED'
   }
+  dependsOn cleanTest
+  testLogging.showStandardStreams = true
 }
 
 run {
   args = ['run', mainVerticleName, "--redeploy=$watchForChange", "--launcher-class=$mainClassName", "--on-redeploy=$doOnChange"]
+}
+
+protobuf {
+  protoc {
+    artifact = 'com.google.protobuf:protoc:3.2.0'
+  }
+  plugins {
+    grpc {
+      artifact = "io.vertx:protoc-gen-grpc-java:1.25.0"
+    }
+  }
+  generateProtoTasks {
+    all()*.plugins {
+      grpc
+    }
+  }
 }
