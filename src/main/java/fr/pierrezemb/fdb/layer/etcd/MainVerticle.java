@@ -10,9 +10,14 @@ public class MainVerticle extends AbstractVerticle {
 
   @Override
   public void start(Promise<Void> startPromise) throws Exception {
+
+    System.out.println("connecting to fdb");
+
+    EtcdRecordStore recordStore = new EtcdRecordStore(System.getenv("FDB_CLUSTER_FILE"));
+
     VertxServer server = VertxServerBuilder
       .forAddress(vertx, "localhost", 8080)
-      .addService(new KVImpl()).build();
+      .addService(new KVImpl(recordStore)).build();
 
     server.start(ar -> {
       if (ar.succeeded()) {
