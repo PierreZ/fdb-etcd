@@ -2,8 +2,8 @@ package fr.pierrezemb.fdb.layer.etcd.impl;
 
 
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStore;
-import fr.pierrezemb.etcd.pb.KVGrpc;
-import fr.pierrezemb.etcd.pb.Rpc;
+import etcdserverpb.EtcdIoRpcProto;
+import etcdserverpb.KVGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.EtcdRecordStore;
 import io.vertx.core.Promise;
@@ -27,7 +27,8 @@ public class KVImpl extends KVGrpc.KVVertxImplBase {
    * @param response
    */
   @Override
-  public void put(Rpc.PutRequest request, Promise<Rpc.PutResponse> response) {
+  public void put(EtcdIoRpcProto.PutRequest request, Promise<EtcdIoRpcProto.PutResponse> response) {
+    System.out.println("inside put");
     this.recordStore.db.run(context -> {
       FDBRecordStore recordStore = this.recordStore.recordStoreProvider.apply(context);
       recordStore.saveRecord(EtcdRecord.PutRequest.newBuilder()
@@ -37,6 +38,7 @@ public class KVImpl extends KVGrpc.KVVertxImplBase {
         .setPrevKv(request.getPrevKv())
         .setIgnoreValue(request.getIgnoreValue())
         .setIgnoreLease(request.getIgnoreLease()).build());
+      System.out.println("save done");
       return null;
     });
     response.complete();

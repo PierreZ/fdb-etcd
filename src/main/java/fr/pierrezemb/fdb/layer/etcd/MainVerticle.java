@@ -11,9 +11,11 @@ public class MainVerticle extends AbstractVerticle {
   @Override
   public void start(Promise<Void> startPromise) throws Exception {
 
-    System.out.println("connecting to fdb");
 
-    EtcdRecordStore recordStore = new EtcdRecordStore(System.getenv("FDB_CLUSTER_FILE"));
+    String clusterFilePath = this.context.config().getString("fdb-cluster-file");
+    System.out.println("connecting to fdb@" + clusterFilePath);
+
+    EtcdRecordStore recordStore = new EtcdRecordStore(clusterFilePath);
 
     VertxServer server = VertxServerBuilder
       .forAddress(vertx, "localhost", 8080)
