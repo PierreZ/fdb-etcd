@@ -3,6 +3,7 @@ package fr.pierrezemb.fdb.layer.etcd;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
 import io.etcd.jetcd.KV;
+import io.etcd.jetcd.kv.GetResponse;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -51,7 +52,6 @@ public class TestMainVerticle {
 
       Container.ExecResult statusResult = fdb.execInContainer("fdbcli", "--exec", "status");
       stdout = statusResult.getStdout();
-      System.out.println(stdout);
 
       if (stdout.contains("Healthy")) {
         fdbReady = true;
@@ -91,6 +91,9 @@ public class TestMainVerticle {
 
     // put the key-value
     kvClient.put(key, value).get();
+
+    GetResponse response = kvClient.get(key).get();
+    System.out.println(response.getKvs().get(0).getValue());
 
     testContext.completeNow();
   }
