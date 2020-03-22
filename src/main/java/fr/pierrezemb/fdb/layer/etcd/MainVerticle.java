@@ -12,7 +12,6 @@ public class MainVerticle extends AbstractVerticle {
   @Override
   public void start(Promise<Void> startPromise) throws Exception {
 
-
     String clusterFilePath = this.context.config().getString("fdb-cluster-file");
     System.out.println("connecting to fdb@" + clusterFilePath);
 
