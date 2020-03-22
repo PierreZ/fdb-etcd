@@ -1,6 +1,5 @@
 package fr.pierrezemb.fdb.layer.etcd;
 
-import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordStore;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
 import io.etcd.jetcd.KV;
@@ -11,18 +10,11 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.testcontainers.containers.Container;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
 
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -55,8 +47,8 @@ public class TestMainVerticle extends FDBTestBase {
     // put the key-value
     kvClient.put(key, value).get();
 
-    // GetResponse response = kvClient.get(key).get();
-    // System.out.println(response.getKvs().get(0).getValue());
+    GetResponse response = kvClient.get(key).get();
+    System.out.println(response.getKvs().get(0).getValue());
 
     testContext.completeNow();
   }

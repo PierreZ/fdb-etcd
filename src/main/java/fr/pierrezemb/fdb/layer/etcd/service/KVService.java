@@ -1,20 +1,18 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
 
-import com.apple.foundationdb.record.EndpointType;
-import com.apple.foundationdb.record.RecordCursor;
-import com.apple.foundationdb.record.ScanProperties;
-import com.apple.foundationdb.record.provider.foundationdb.FDBStoredRecord;
 import com.apple.foundationdb.tuple.Tuple;
 import com.google.protobuf.InvalidProtocolBufferException;
-import com.google.protobuf.Message;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.KVGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordStore;
 import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Promise;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+import mvccpb.EtcdIoKvProto;
 
 public class KVService extends KVGrpc.KVVertxImplBase {
 
@@ -56,22 +54,22 @@ public class KVService extends KVGrpc.KVVertxImplBase {
   @Override
   public void range(EtcdIoRpcProto.RangeRequest request, Promise<EtcdIoRpcProto.RangeResponse> response) {
 
-    // Subspace(rawPrefix=\x02record-layer-demo\x00\x15\x01)
-    List<EtcdRecord.PutRequest> putRequestList = this.recordStore.db.run(context -> {
-      RecordCursor<FDBStoredRecord<Message>> cursor =
-        this.recordStore.recordStoreProvider
-          .apply(context)
-          .scanRecords(
-            Tuple.from(request.getKey().toStringUtf8()),
-            null,
-            // Tuple.from(request.getRangeEnd().toStringUtf8()),
-            EndpointType.RANGE_INCLUSIVE, EndpointType.RANGE_INCLUSIVE,
-            null, ScanProperties.FORWARD_SCAN);
+    List<EtcdRecord.PutRequest> results = new ArrayList<>();
 
-      return cursor
-        .map(queriedRecord -> EtcdRecord.PutRequest.newBuilder().mergeFrom(queriedRecord.getRecord()).build())
-        .asList().join();
-    });
-    response.complete();
+    if (request.getRangeEnd().isEmpty()) {
+      // get
+      results.add(this.recordStore.get(Tuple.from(request.getKey().toByteArray())));
+    } else {
+      // scan
+      results = this.recordStore.scan(
+        Tuple.from(request.getKey().toByteArray()), Tuple.from(request.getRangeEnd().toByteArray()));
+    }
+
+    // TODO(PZ): convert PutRequest in KeyValue
+    List<EtcdIoKvProto.KeyValue> kvs = results.stream()
+      .map(e -> EtcdIoKvProto.KeyValue.newBuilder()
+        .setKey(e.getKey()).setValue(e.getValue()).build()).collect(Collectors.toList());
+
+    response.complete(EtcdIoRpcProto.RangeResponse.newBuilder().addAllKvs(kvs).build());
   }
 }
