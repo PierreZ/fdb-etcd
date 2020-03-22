@@ -1,4 +1,4 @@
-package fr.pierrezemb.fdb.layer.etcd;
+package fr.pierrezemb.fdb.layer.etcd.store;
 
 import com.apple.foundationdb.record.RecordMetaData;
 import com.apple.foundationdb.record.RecordMetaDataBuilder;
@@ -40,5 +40,12 @@ public class EtcdRecordStore {
       .setContext(context)
       .setKeySpacePath(path)
       .createOrOpen();
+  }
+
+  public void put(EtcdRecord.PutRequest request) {
+    this.db.run(context-> {
+      FDBRecordStore recordStore = recordStoreProvider.apply(context);
+      return recordStore.saveRecord(request);
+    });
   }
 }

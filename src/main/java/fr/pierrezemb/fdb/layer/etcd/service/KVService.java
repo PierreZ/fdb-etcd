@@ -1,31 +1,26 @@
-package fr.pierrezemb.fdb.layer.etcd.impl;
+package fr.pierrezemb.fdb.layer.etcd.service;
 
 
 import com.apple.foundationdb.record.EndpointType;
 import com.apple.foundationdb.record.RecordCursor;
 import com.apple.foundationdb.record.ScanProperties;
-import com.apple.foundationdb.record.metadata.Key;
-import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStore;
 import com.apple.foundationdb.record.provider.foundationdb.FDBStoredRecord;
-import com.apple.foundationdb.record.query.RecordQuery;
-import com.apple.foundationdb.record.query.expressions.Query;
 import com.apple.foundationdb.tuple.Tuple;
-import com.google.common.base.Utf8;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.KVGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import fr.pierrezemb.fdb.layer.etcd.EtcdRecordStore;
+import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordStore;
+import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Promise;
-import java.nio.charset.Charset;
 import java.util.List;
-import java.util.Optional;
 
-public class KVImpl extends KVGrpc.KVVertxImplBase {
+public class KVService extends KVGrpc.KVVertxImplBase {
 
   private EtcdRecordStore recordStore;
 
-  public KVImpl(EtcdRecordStore recordStore) {
+  public KVService(EtcdRecordStore recordStore) {
     this.recordStore = recordStore;
   }
 
@@ -41,17 +36,12 @@ public class KVImpl extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void put(EtcdIoRpcProto.PutRequest request, Promise<EtcdIoRpcProto.PutResponse> response) {
-    this.recordStore.db.run(context -> {
-      FDBRecordStore recordStore = this.recordStore.recordStoreProvider.apply(context);
-      recordStore.saveRecord(EtcdRecord.PutRequest.newBuilder()
-        .setKey(request.getKey())
-        .setValue(request.getValue())
-        .setLease(request.getLease())
-        .setPrevKv(request.getPrevKv())
-        .setIgnoreValue(request.getIgnoreValue())
-        .setIgnoreLease(request.getIgnoreLease()).build());
-      return null;
-    });
+    try {
+      this.recordStore.put(ProtoUtils.from(request));
+    } catch (InvalidProtocolBufferException e) {
+      response.fail(e);
+      return;
+    }
     response.complete();
   }
 

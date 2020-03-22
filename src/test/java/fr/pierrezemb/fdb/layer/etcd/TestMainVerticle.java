@@ -1,5 +1,6 @@
 package fr.pierrezemb.fdb.layer.etcd;
 
+import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordStore;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
 import io.etcd.jetcd.KV;
