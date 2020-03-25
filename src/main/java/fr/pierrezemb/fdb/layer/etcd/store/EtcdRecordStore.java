@@ -10,6 +10,7 @@ import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStore;
 import com.apple.foundationdb.record.provider.foundationdb.FDBStoredRecord;
+import com.apple.foundationdb.record.provider.foundationdb.keyspace.DirectoryLayerDirectory;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpace;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpaceDirectory;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpacePath;
@@ -30,19 +31,28 @@ public class EtcdRecordStore {
     // get DB
     db = FDBDatabaseFactory.instance().getDatabase(clusterFilePath);
 
-    // Define the keyspace for our application
-    keySpace = new KeySpace(new KeySpaceDirectory("record-layer-demo", KeySpaceDirectory.KeyType.STRING, "record-layer-demo"));
+    // In this case, the key space implies that there are multiple "applications"
+    // that might be defined to run on the same FoundationDB cluster, and then
+    // each "application" might have multiple "environments". This could be used,
+    // for example, to connect to either the "prod" or "qa" environment for the same
+    // application from within the same code base.
+    keySpace = new KeySpace(
+      new DirectoryLayerDirectory("application")
+        .addSubdirectory(new KeySpaceDirectory("user", KeySpaceDirectory.KeyType.STRING))
+    );
 
-    // Get the path where our record store will be rooted
-    path = keySpace.path("record-layer-demo");
+    // Create a path for the "etcd-store" application's and "user1" user
+    path = keySpace.path("application", "etcd-store").add("user", "user1");
 
-    RecordMetaDataBuilder metaDataBuilder = RecordMetaData.newBuilder()
+    RecordMetaDataBuilder metadataBuilder = RecordMetaData.newBuilder()
       .setRecords(EtcdRecord.getDescriptor());
 
-    metaDataBuilder.getRecordType("PutRequest").setPrimaryKey(Key.Expressions.field("key"));
+    metadataBuilder.getRecordType("PutRequest").setPrimaryKey(Key.Expressions.field("key"));
+    // This can be stored within FDB,
+    // see https://github.com/FoundationDB/fdb-record-layer/blob/master/fdb-record-layer-core/src/test/java/com/apple/foundationdb/record/provider/foundationdb/FDBMetaDataStoreTest.java#L101
 
     recordStoreProvider = context -> FDBRecordStore.newBuilder()
-      .setMetaDataProvider(metaDataBuilder)
+      .setMetaDataProvider(metadataBuilder)
       .setContext(context)
       .setKeySpacePath(path)
       .createOrOpen();
