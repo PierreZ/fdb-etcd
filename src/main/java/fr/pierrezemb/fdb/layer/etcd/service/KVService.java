@@ -12,6 +12,7 @@ import io.vertx.core.Promise;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import mvccpb.EtcdIoKvProto;
 
 public class KVService extends KVGrpc.KVVertxImplBase {
@@ -67,9 +68,26 @@ public class KVService extends KVGrpc.KVVertxImplBase {
 
     // TODO(PZ): convert PutRequest in KeyValue
     List<EtcdIoKvProto.KeyValue> kvs = results.stream()
+      .flatMap(Stream::ofNullable)
       .map(e -> EtcdIoKvProto.KeyValue.newBuilder()
         .setKey(e.getKey()).setValue(e.getValue()).build()).collect(Collectors.toList());
 
     response.complete(EtcdIoRpcProto.RangeResponse.newBuilder().addAllKvs(kvs).build());
+  }
+
+  /**
+   * <pre>
+   * DeleteRange deletes the given range from the key-value store.
+   * A delete request increments the revision of the key-value store
+   * and generates a delete event in the event history for every deleted key.
+   * </pre>
+   *
+   * @param request
+   * @param response
+   */
+  @Override
+  public void deleteRange(EtcdIoRpcProto.DeleteRangeRequest request, Promise<EtcdIoRpcProto.DeleteRangeResponse> response) {
+    this.recordStore.delete(Tuple.from(request.getKey().toByteArray()), Tuple.from(request.getKey().toByteArray()));
+    response.complete();
   }
 }

@@ -14,6 +14,8 @@ import com.apple.foundationdb.record.provider.foundationdb.keyspace.DirectoryLay
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpace;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpaceDirectory;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpacePath;
+import com.apple.foundationdb.record.query.expressions.Query;
+import com.apple.foundationdb.record.query.expressions.QueryComponent;
 import com.apple.foundationdb.tuple.Tuple;
 import com.google.protobuf.Message;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
@@ -89,6 +91,21 @@ public class EtcdRecordStore {
     this.db.run(context -> {
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
       return recordStore.saveRecord(request);
+    });
+  }
+
+  public void delete(Tuple start, Tuple end) {
+    this.db.run(context -> {
+      FDBRecordStore recordStore = recordStoreProvider.apply(context);
+      // TODO: split code and return list of deletes keys
+      recordStore.scanRecords(
+        start, end,
+        EndpointType.RANGE_INCLUSIVE, EndpointType.RANGE_INCLUSIVE,
+        null, ScanProperties.FORWARD_SCAN)
+        .map(queriedRecord -> EtcdRecord.PutRequest.newBuilder().mergeFrom(queriedRecord.getRecord()).build())
+        .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray())))
+        .asList().join();
+      return null;
     });
   }
 }

@@ -11,6 +11,7 @@ An experiment to provide ETCD layer on top of FoundationDB, built with [Record-L
     * put
     * get
     * scan
+    * delete
 
 For TODO's, please have a look to the [Github issues](https://github.com/pierrez/fdb-etcd/issues).
 

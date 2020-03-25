@@ -52,6 +52,11 @@ class EtcdRecordStoreTest extends FDBTestBase {
     // and scan!
     List<EtcdRecord.PutRequest> scanResult = recordStore.scan(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
     assertEquals(2, scanResult.size());
+
+    // and delete
+    recordStore.delete(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
+    List<EtcdRecord.PutRequest> scanResult2 = recordStore.scan(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
+    assertEquals(0, scanResult2.size());
   }
 
   @AfterAll
