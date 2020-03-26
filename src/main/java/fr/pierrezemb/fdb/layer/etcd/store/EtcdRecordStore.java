@@ -14,8 +14,6 @@ import com.apple.foundationdb.record.provider.foundationdb.keyspace.DirectoryLay
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpace;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpaceDirectory;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpacePath;
-import com.apple.foundationdb.record.query.expressions.Query;
-import com.apple.foundationdb.record.query.expressions.QueryComponent;
 import com.apple.foundationdb.tuple.Tuple;
 import com.google.protobuf.Message;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;

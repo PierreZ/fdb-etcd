@@ -3,16 +3,18 @@ package fr.pierrezemb.fdb.layer.etcd;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 
-public abstract class FDBTestBase {
+public class FDBTestBase {
 
   private GenericContainer fdb = new GenericContainer("foundationdb/foundationdb:6.2.19")
     .withExposedPorts(4500)
     .waitingFor(Wait.forListeningPort());
-  public String clusterFilePath;
+  public String clusterFilePath = "./fdb.cluster";
+  private Path file;
 
   protected final void internalSetup() throws InterruptedException, IOException {
     fdb.start();
@@ -45,10 +47,15 @@ public abstract class FDBTestBase {
     }
 
     // handle fdb cluster file
-    Path path = Files.createTempDirectory("java-fdb-etcd-tests");
-    clusterFilePath = path.toAbsolutePath().toString() + "/fdb.cluster";
+    createClusterFile(fdb.getContainerIpAddress(), fdb.getFirstMappedPort());
     System.out.println(clusterFilePath);
     fdb.copyFileFromContainer("/var/fdb/fdb.cluster", clusterFilePath);
+  }
+
+  protected void createClusterFile(String ip, Integer port) throws IOException {
+    file = Paths.get(clusterFilePath);
+    String content = "docker:docker@" + ip + ":" + port;
+    Files.write(file, content.getBytes());
   }
 
   protected void internalShutdown() {
