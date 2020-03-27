@@ -69,7 +69,10 @@ test {
     events 'PASSED', 'FAILED', 'SKIPPED'
   }
   dependsOn cleanTest
-  testLogging.showStandardStreams = true
+  testLogging {
+    showStandardStreams = true
+    exceptionFormat = 'full'
+  }
 }
 
 run {

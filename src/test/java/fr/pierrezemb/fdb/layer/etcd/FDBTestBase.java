@@ -4,15 +4,22 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
 
 public class FDBTestBase {
 
+  private final Logger log = LoggerFactory.getLogger(FDBTestBase.class);
+
   private GenericContainer fdb = new GenericContainer("foundationdb/foundationdb:6.2.19")
     .withExposedPorts(4500)
+    .withLogConsumer(new Slf4jLogConsumer(log))
     .waitingFor(Wait.forListeningPort());
+
   public String clusterFilePath = "./fdb.cluster";
   private Path file;
 
