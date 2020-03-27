@@ -22,6 +22,8 @@ For TODO's, please have a look to the [Github issues](https://github.com/pierrez
 * JDK 11 or more
 * Docker (for testing)
 * gradle 6.2.2
+* [FoundationDB Client Packages](https://www.foundationdb.org/download/)
+
 
 ### Gradle cheat-sheet
 
