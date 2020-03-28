@@ -94,3 +94,7 @@ protobuf {
     }
   }
 }
+
+tasks.withType(JavaCompile) {
+  options.compilerArgs << '-Xlint:unchecked'
+}

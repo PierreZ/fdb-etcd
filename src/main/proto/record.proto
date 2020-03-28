@@ -3,29 +3,26 @@ syntax = "proto3";
 package fr.pierrezemb.etcd.record.pb;
 option java_outer_classname = "EtcdRecord";
 
-message PutRequest {
-  // key is the key, in bytes, to put into the key-value store.
+message KeyValue {
+  // key is the key in bytes. An empty key is not allowed.
   bytes key = 1;
-  // value is the value, in bytes, to associate with the key in the key-value store.
-  bytes value = 2;
-  // lease is the lease ID to associate with the key in the key-value store. A lease
-  // value of 0 indicates no lease.
-  int64 lease = 3;
-
-  // If prev_kv is set, etcd gets the previous key-value pair before changing it.
-  // The previous key-value pair will be returned in the put response.
-  bool prev_kv = 4;
-
-  // If ignore_value is set, etcd updates the key using its current value.
-  // Returns an error if the key does not exist.
-  bool ignore_value = 5;
-
-  // If ignore_lease is set, etcd updates the key using its current lease.
-  // Returns an error if the key does not exist.
-  bool ignore_lease = 6;
+  // create_revision is the revision of last creation on this key.
+  int64 create_revision = 2;
+  // mod_revision is the revision of last modification on this key.
+  int64 mod_revision = 3;
+  // version is the version of the key. A deletion resets
+  // the version to zero and any modification of the key
+  // increases its version.
+  int64 version = 4;
+  // value is the value held by the key, in bytes.
+  bytes value = 5;
+  // lease is the ID of the lease that attached to key.
+  // When the attached lease expires, the key will be deleted.
+  // If lease is 0, then no lease is attached to the key.
+  int64 lease = 6;
 }
 
 message RecordTypeUnion {
-  PutRequest _PutRequest = 1;
+  KeyValue _KeyValue = 1;
 }
 

@@ -55,7 +55,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
   @Override
   public void range(EtcdIoRpcProto.RangeRequest request, Promise<EtcdIoRpcProto.RangeResponse> response) {
 
-    List<EtcdRecord.PutRequest> results = new ArrayList<>();
+    List<EtcdRecord.KeyValue> results = new ArrayList<>();
 
     if (request.getRangeEnd().isEmpty()) {
       // get

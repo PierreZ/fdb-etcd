@@ -5,7 +5,11 @@ import etcdserverpb.EtcdIoRpcProto;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 
 public class ProtoUtils {
-  public static EtcdRecord.PutRequest from(EtcdIoRpcProto.PutRequest request) throws InvalidProtocolBufferException {
-    return EtcdRecord.PutRequest.parseFrom(request.toByteArray());
+  public static EtcdRecord.KeyValue from(EtcdIoRpcProto.PutRequest request) throws InvalidProtocolBufferException {
+    return EtcdRecord.KeyValue.newBuilder()
+      .setKey(request.getKey())
+      .setValue(request.getValue())
+      .setLease(request.getLease())
+      .build();
   }
 }

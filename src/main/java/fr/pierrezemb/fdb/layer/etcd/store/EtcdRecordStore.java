@@ -47,7 +47,7 @@ public class EtcdRecordStore {
     RecordMetaDataBuilder metadataBuilder = RecordMetaData.newBuilder()
       .setRecords(EtcdRecord.getDescriptor());
 
-    metadataBuilder.getRecordType("PutRequest").setPrimaryKey(Key.Expressions.field("key"));
+    metadataBuilder.getRecordType("KeyValue").setPrimaryKey(Key.Expressions.field("key"));
     // This can be stored within FDB,
     // see https://github.com/FoundationDB/fdb-record-layer/blob/master/fdb-record-layer-core/src/test/java/com/apple/foundationdb/record/provider/foundationdb/FDBMetaDataStoreTest.java#L101
 
@@ -58,19 +58,19 @@ public class EtcdRecordStore {
       .createOrOpen();
   }
 
-  public EtcdRecord.PutRequest get(Tuple key) {
+  public EtcdRecord.KeyValue get(Tuple key) {
     return db.run(context -> {
       FDBStoredRecord<Message> storedMessage = recordStoreProvider.apply(context).loadRecord(key);
       if (storedMessage == null) {
         return null;
       }
-      return EtcdRecord.PutRequest.newBuilder()
+      return EtcdRecord.KeyValue.newBuilder()
         .mergeFrom(storedMessage.getRecord())
         .build();
     });
   }
 
-  public List<EtcdRecord.PutRequest> scan(Tuple start, Tuple end) {
+  public List<EtcdRecord.KeyValue> scan(Tuple start, Tuple end) {
     return db.run(context -> {
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
 
@@ -79,16 +79,16 @@ public class EtcdRecordStore {
         start, end,
         EndpointType.RANGE_INCLUSIVE, EndpointType.RANGE_INCLUSIVE,
         null, ScanProperties.FORWARD_SCAN)
-        .map(queriedRecord -> EtcdRecord.PutRequest.newBuilder()
+        .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
           .mergeFrom(queriedRecord.getRecord()).build())
         .asList().join();
     });
   }
 
-  public void put(EtcdRecord.PutRequest request) {
+  public void put(EtcdRecord.KeyValue record) {
     this.db.run(context -> {
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
-      return recordStore.saveRecord(request);
+      return recordStore.saveRecord(record);
     });
   }
 
@@ -100,7 +100,7 @@ public class EtcdRecordStore {
         start, end,
         EndpointType.RANGE_INCLUSIVE, EndpointType.RANGE_INCLUSIVE,
         null, ScanProperties.FORWARD_SCAN)
-        .map(queriedRecord -> EtcdRecord.PutRequest.newBuilder().mergeFrom(queriedRecord.getRecord()).build())
+        .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder().mergeFrom(queriedRecord.getRecord()).build())
         .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray())))
         .asList().join();
       return null;

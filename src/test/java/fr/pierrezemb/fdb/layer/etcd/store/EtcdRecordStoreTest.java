@@ -29,33 +29,33 @@ class EtcdRecordStoreTest extends FDBTestBase {
   void crud() {
     // inserting an element
     ByteString key = ByteString.copyFromUtf8("/toto");
-    EtcdRecord.PutRequest request = EtcdRecord.PutRequest
+    EtcdRecord.KeyValue request = EtcdRecord.KeyValue
       .newBuilder()
       .setKey(key)
       .setValue(ByteString.copyFromUtf8("tat")).build();
     recordStore.put(request);
-    EtcdRecord.PutRequest storedRecord = recordStore.get(Tuple.from(key.toByteArray()));
+    EtcdRecord.KeyValue storedRecord = recordStore.get(Tuple.from(key.toByteArray()));
     assertNotNull("storedRecord is null :(", storedRecord);
     assertEquals("stored request is different :(", request, storedRecord);
 
     // and a second
     ByteString key2 = ByteString.copyFromUtf8("/toto2");
-    EtcdRecord.PutRequest request2 = EtcdRecord.PutRequest
+    EtcdRecord.KeyValue request2 = EtcdRecord.KeyValue
       .newBuilder()
       .setKey(key2)
       .setValue(ByteString.copyFromUtf8("tat")).build();
     recordStore.put(request2);
-    EtcdRecord.PutRequest storedRecord2 = recordStore.get(Tuple.from(key.toByteArray()));
+    EtcdRecord.KeyValue storedRecord2 = recordStore.get(Tuple.from(key.toByteArray()));
     assertNotNull("storedRecord is null :(", storedRecord2);
     assertEquals("stored request is different :(", request, storedRecord2);
 
     // and scan!
-    List<EtcdRecord.PutRequest> scanResult = recordStore.scan(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
+    List<EtcdRecord.KeyValue> scanResult = recordStore.scan(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
     assertEquals(2, scanResult.size());
 
     // and delete
     recordStore.delete(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
-    List<EtcdRecord.PutRequest> scanResult2 = recordStore.scan(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
+    List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
     assertEquals(0, scanResult2.size());
   }
 

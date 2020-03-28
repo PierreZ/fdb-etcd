@@ -5,7 +5,7 @@ An experiment to provide ETCD layer on top of FoundationDB, built with [Record-L
 ## Features
 
 * etcd protobuf was imported and exposed with Vert.x,
-* Record-layer is used. [As etcd is also using protobuf, we are directly storing the PutRequest](https://github.com/PierreZ/fdb-etcd/blob/master/src/main/proto/record.proto),
+* Record-layer is used. [As etcd is also using protobuf, we are directly storing the KeyValue message](https://github.com/PierreZ/fdb-etcd/blob/master/src/main/proto/record.proto),
 * Integrations test using a real FDB spawned with testcontainers and official Java etcd client,
 * Supported operations:
     * put
