@@ -1,10 +1,13 @@
-package fr.pierrezemb.fdb.layer.etcd;
+package fr.pierrezemb.fdb.layer.etcd.service;
 
 import static fr.pierrezemb.fdb.layer.etcd.TestUtil.bytesOf;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import fr.pierrezemb.fdb.layer.etcd.FDBTestBase;
+import fr.pierrezemb.fdb.layer.etcd.MainVerticle;
+import fr.pierrezemb.fdb.layer.etcd.TestUtil;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
 import io.etcd.jetcd.KV;
@@ -39,7 +42,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
  */
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class IntegrationKVTest extends FDBTestBase {
+public class KVServiceTest extends FDBTestBase {
 
   private static final ByteSequence SAMPLE_KEY = ByteSequence.from("sample_key".getBytes());
   private static final ByteSequence SAMPLE_VALUE = ByteSequence.from("sample_value".getBytes());
