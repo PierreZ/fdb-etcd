@@ -121,7 +121,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void deleteRange(EtcdIoRpcProto.DeleteRangeRequest request, Promise<EtcdIoRpcProto.DeleteRangeResponse> response) {
-    this.recordStore.delete(Tuple.from(request.getKey().toByteArray()), Tuple.from(request.getKey().toByteArray()));
-    response.complete();
+    Integer count = this.recordStore.delete(Tuple.from(request.getKey().toByteArray()), Tuple.from(request.getKey().toByteArray()));
+    response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
   }
 }

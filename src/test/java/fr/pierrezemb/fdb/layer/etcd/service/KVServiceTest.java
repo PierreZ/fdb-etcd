@@ -149,6 +149,9 @@ public class KVServiceTest extends FDBTestBase {
     CompletableFuture<DeleteResponse> deleteFuture = kvClient.delete(keyToDelete);
     DeleteResponse delResp = deleteFuture.get();
     assertEquals(resp.getKvs().size(), delResp.getDeleted());
+
+    GetResponse responseAfterDelete = kvClient.get(keyToDelete).get();
+    assertEquals(0, responseAfterDelete.getKvs().size());
   }
 
   @Test

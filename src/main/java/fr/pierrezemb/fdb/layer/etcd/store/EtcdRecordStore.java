@@ -92,18 +92,19 @@ public class EtcdRecordStore {
     });
   }
 
-  public void delete(Tuple start, Tuple end) {
-    this.db.run(context -> {
+  public Integer delete(Tuple start, Tuple end) {
+    return this.db.run(context -> {
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
       // TODO: split code and return list of deletes keys
-      recordStore.scanRecords(
+
+      return recordStore.scanRecords(
         start, end,
         EndpointType.RANGE_INCLUSIVE, EndpointType.RANGE_INCLUSIVE,
         null, ScanProperties.FORWARD_SCAN)
         .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder().mergeFrom(queriedRecord.getRecord()).build())
         .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray())))
-        .asList().join();
-      return null;
+        .getCount()
+        .join();
     });
   }
 }
