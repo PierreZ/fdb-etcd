@@ -1,14 +1,13 @@
 package fr.pierrezemb.fdb.layer.etcd;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
+import com.google.common.base.Charsets;
+import com.google.protobuf.ByteString;
 import io.etcd.jetcd.ByteSequence;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.ServerSocket;
-
-import com.google.common.base.Charsets;
-import com.google.protobuf.ByteString;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class TestUtil {
 
@@ -44,10 +43,6 @@ public class TestUtil {
     }
   }
 
-  public interface TestCondition {
-    boolean conditionMet();
-  }
-
   public static void waitForCondition(final TestCondition testCondition, final long maxWaitMs,
                                       String conditionDetails) throws InterruptedException {
     final long startTime = System.currentTimeMillis();
@@ -59,5 +54,9 @@ public class TestUtil {
       conditionDetails = conditionDetails != null ? conditionDetails : "";
       throw new AssertionError("Condition not met within timeout " + maxWaitMs + ". " + conditionDetails);
     }
+  }
+
+  public interface TestCondition {
+    boolean conditionMet();
   }
 }

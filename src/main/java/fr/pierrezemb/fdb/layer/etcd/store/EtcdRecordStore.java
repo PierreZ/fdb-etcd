@@ -22,9 +22,9 @@ import java.util.function.Function;
 
 public class EtcdRecordStore {
   public final FDBDatabase db;
+  public final Function<FDBRecordContext, FDBRecordStore> recordStoreProvider;
   private final KeySpace keySpace;
   private final KeySpacePath path;
-  public final Function<FDBRecordContext, FDBRecordStore> recordStoreProvider;
 
   public EtcdRecordStore(String clusterFilePath) {
 
