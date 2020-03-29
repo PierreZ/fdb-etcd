@@ -76,7 +76,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
       kvs.sort(createComparatorFromRequest(request));
     }
 
-    response.complete(EtcdIoRpcProto.RangeResponse.newBuilder().addAllKvs(kvs).build());
+    response.complete(EtcdIoRpcProto.RangeResponse.newBuilder().addAllKvs(kvs).setCount(kvs.size()).build());
   }
 
   private Comparator<? super EtcdIoKvProto.KeyValue> createComparatorFromRequest(EtcdIoRpcProto.RangeRequest request) {
@@ -121,7 +121,10 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void deleteRange(EtcdIoRpcProto.DeleteRangeRequest request, Promise<EtcdIoRpcProto.DeleteRangeResponse> response) {
-    Integer count = this.recordStore.delete(Tuple.from(request.getKey().toByteArray()), Tuple.from(request.getKey().toByteArray()));
+
+    Integer count = this.recordStore.delete(
+      Tuple.from(request.getKey().toByteArray()),
+      request.getRangeEnd().isEmpty() ? Tuple.from(request.getKey().toByteArray()) : Tuple.from(request.getRangeEnd().toByteArray()));
     response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
   }
 }

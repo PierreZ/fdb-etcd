@@ -19,14 +19,20 @@ import com.google.protobuf.Message;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import java.util.List;
 import java.util.function.Function;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class EtcdRecordStore {
+  private static Logger log = LoggerFactory.getLogger(EtcdRecordStore.class);
+
   public final FDBDatabase db;
   public final Function<FDBRecordContext, FDBRecordStore> recordStoreProvider;
   private final KeySpace keySpace;
   private final KeySpacePath path;
 
   public EtcdRecordStore(String clusterFilePath) {
+
+    log.info("creating FDB Record store using cluster file @" + clusterFilePath);
 
     // get DB
     db = FDBDatabaseFactory.instance().getDatabase(clusterFilePath);
@@ -59,18 +65,23 @@ public class EtcdRecordStore {
   }
 
   public EtcdRecord.KeyValue get(Tuple key) {
+    log.trace("retrieving record {}", key.toString());
     return db.run(context -> {
       FDBStoredRecord<Message> storedMessage = recordStoreProvider.apply(context).loadRecord(key);
       if (storedMessage == null) {
         return null;
       }
-      return EtcdRecord.KeyValue.newBuilder()
+      EtcdRecord.KeyValue result = EtcdRecord.KeyValue.newBuilder()
         .mergeFrom(storedMessage.getRecord())
         .build();
+
+      log.trace("found a record: {}", result.toString());
+      return result;
     });
   }
 
   public List<EtcdRecord.KeyValue> scan(Tuple start, Tuple end) {
+    log.trace("scanning between {} and {}", start.toString(), end.toString());
     return db.run(context -> {
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
 
@@ -81,12 +92,17 @@ public class EtcdRecordStore {
         null, ScanProperties.FORWARD_SCAN)
         .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
           .mergeFrom(queriedRecord.getRecord()).build())
+        .map(r -> {
+          log.trace("found a record: {}", r);
+          return r;
+        })
         .asList().join();
     });
   }
 
   public void put(EtcdRecord.KeyValue record) {
     this.db.run(context -> {
+      log.trace("putting record {}", record.toString());
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
       return recordStore.saveRecord(record);
     });
@@ -102,6 +118,10 @@ public class EtcdRecordStore {
         EndpointType.RANGE_INCLUSIVE, EndpointType.RANGE_INCLUSIVE,
         null, ScanProperties.FORWARD_SCAN)
         .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder().mergeFrom(queriedRecord.getRecord()).build())
+        .map(queriedRecord -> {
+          log.trace("deleting " + queriedRecord.toString());
+          return queriedRecord;
+        })
         .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray())))
         .getCount()
         .join();

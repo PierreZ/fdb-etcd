@@ -48,6 +48,10 @@ dependencies {
   testCompile "org.testcontainers:testcontainers:1.13.0"
   testImplementation "io.etcd:jetcd-core:0.5.0"
 
+  // https://mvnrepository.com/artifact/org.slf4j/slf4j-simple
+  testCompile group: 'org.slf4j', name: 'slf4j-simple', version: '1.7.30'
+
+
   testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:$junitJupiterEngineVersion"
   testImplementation "org.junit.jupiter:junit-jupiter-api:$junitJupiterEngineVersion"
 }
