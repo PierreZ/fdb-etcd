@@ -10,11 +10,10 @@ import org.testcontainers.containers.wait.strategy.Wait;
 
 public class FDBTestBase {
 
+  public String clusterFilePath = "./fdb.cluster";
   private GenericContainer fdb = new GenericContainer("foundationdb/foundationdb:6.2.19")
     .withExposedPorts(4500)
     .waitingFor(Wait.forListeningPort());
-
-  public String clusterFilePath = "./fdb.cluster";
   private Path file;
 
   protected final void internalSetup() throws InterruptedException, IOException {

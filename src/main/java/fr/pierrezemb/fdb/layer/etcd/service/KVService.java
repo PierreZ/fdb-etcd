@@ -10,6 +10,7 @@ import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordStore;
 import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Promise;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -66,14 +67,47 @@ public class KVService extends KVGrpc.KVVertxImplBase {
         Tuple.from(request.getKey().toByteArray()), Tuple.from(request.getRangeEnd().toByteArray()));
     }
 
-    // TODO(PZ): convert PutRequest in KeyValue
     List<EtcdIoKvProto.KeyValue> kvs = results.stream()
       .flatMap(Stream::ofNullable)
       .map(e -> EtcdIoKvProto.KeyValue.newBuilder()
         .setKey(e.getKey()).setValue(e.getValue()).build()).collect(Collectors.toList());
 
-    response.complete(EtcdIoRpcProto.RangeResponse.newBuilder().addAllKvs(kvs).build());
+    if (request.getSortOrder().getNumber() > 0) {
+      kvs.sort(createComparatorFromRequest(request));
+    }
+
+    response.complete(EtcdIoRpcProto.RangeResponse.newBuilder().addAllKvs(kvs).setCount(kvs.size()).build());
   }
+
+  private Comparator<? super EtcdIoKvProto.KeyValue> createComparatorFromRequest(EtcdIoRpcProto.RangeRequest request) {
+    Comparator<EtcdIoKvProto.KeyValue> comparator;
+    switch (request.getSortTarget()) {
+      case KEY:
+        comparator = Comparator.comparing(e -> e.getKey().toStringUtf8());
+        break;
+      case VERSION:
+        comparator = Comparator.comparing(EtcdIoKvProto.KeyValue::getVersion);
+        break;
+      case CREATE:
+        comparator = Comparator.comparing(EtcdIoKvProto.KeyValue::getCreateRevision);
+        break;
+      case MOD:
+        comparator = Comparator.comparing(EtcdIoKvProto.KeyValue::getModRevision);
+        break;
+      case VALUE:
+        comparator = Comparator.comparing(e -> e.getValue().toStringUtf8());
+        break;
+      default:
+        throw new IllegalStateException("Unexpected value: " + request.getSortTarget());
+    }
+
+    if (request.getSortOrder().equals(EtcdIoRpcProto.RangeRequest.SortOrder.DESCEND)) {
+      comparator = comparator.reversed();
+    }
+
+    return comparator;
+  }
+
 
   /**
    * <pre>
@@ -87,7 +121,10 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void deleteRange(EtcdIoRpcProto.DeleteRangeRequest request, Promise<EtcdIoRpcProto.DeleteRangeResponse> response) {
-    this.recordStore.delete(Tuple.from(request.getKey().toByteArray()), Tuple.from(request.getKey().toByteArray()));
-    response.complete();
+
+    Integer count = this.recordStore.delete(
+      Tuple.from(request.getKey().toByteArray()),
+      request.getRangeEnd().isEmpty() ? Tuple.from(request.getKey().toByteArray()) : Tuple.from(request.getRangeEnd().toByteArray()));
+    response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
   }
 }
