@@ -105,7 +105,6 @@ public class KVServiceTest extends FDBTestBase {
   }
 
   @Test
-  @Disabled("no rev for now")
   public void testGetWithRev() throws Exception {
     CompletableFuture<PutResponse> feature = kvClient.put(SAMPLE_KEY_3, SAMPLE_VALUE);
     PutResponse putResp = feature.get();

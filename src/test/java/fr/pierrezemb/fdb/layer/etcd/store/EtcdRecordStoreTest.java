@@ -3,7 +3,6 @@ package fr.pierrezemb.fdb.layer.etcd.store;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import com.apple.foundationdb.tuple.Tuple;
 import com.google.protobuf.ByteString;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.FDBTestBase;
@@ -34,7 +33,7 @@ class EtcdRecordStoreTest extends FDBTestBase {
       .setKey(key)
       .setValue(ByteString.copyFromUtf8("tat")).build();
     recordStore.put(request);
-    EtcdRecord.KeyValue storedRecord = recordStore.get(Tuple.from(key.toByteArray()));
+    EtcdRecord.KeyValue storedRecord = recordStore.get(key.toByteArray());
     assertNotNull("storedRecord is null :(", storedRecord);
     assertEquals("stored request is different :(", request, storedRecord);
 
@@ -45,17 +44,17 @@ class EtcdRecordStoreTest extends FDBTestBase {
       .setKey(key2)
       .setValue(ByteString.copyFromUtf8("tat")).build();
     recordStore.put(request2);
-    EtcdRecord.KeyValue storedRecord2 = recordStore.get(Tuple.from(key.toByteArray()));
+    EtcdRecord.KeyValue storedRecord2 = recordStore.get(key.toByteArray());
     assertNotNull("storedRecord is null :(", storedRecord2);
     assertEquals("stored request is different :(", request, storedRecord2);
 
     // and scan!
-    List<EtcdRecord.KeyValue> scanResult = recordStore.scan(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
+    List<EtcdRecord.KeyValue> scanResult = recordStore.scan("/tot".getBytes(), "/u".getBytes());
     assertEquals(2, scanResult.size());
 
     // and delete
-    recordStore.delete(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
-    List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan(Tuple.from("/tot".getBytes()), Tuple.from("/u".getBytes()));
+    recordStore.delete("/tot".getBytes(), "/u".getBytes());
+    List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan("/tot".getBytes(), "/u".getBytes());
     assertEquals(0, scanResult2.size());
   }
 
