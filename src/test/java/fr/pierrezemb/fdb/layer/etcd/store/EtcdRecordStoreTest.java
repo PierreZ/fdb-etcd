@@ -49,12 +49,12 @@ class EtcdRecordStoreTest extends FDBTestBase {
     assertEquals("stored request is different :(", request, storedRecord2);
 
     // and scan!
-    List<EtcdRecord.KeyValue> scanResult = recordStore.scan("/tot".getBytes(), "/u".getBytes());
+    List<EtcdRecord.KeyValue> scanResult = recordStore.scan("/tot".getBytes(), "/u".getBytes(), 0);
     assertEquals(2, scanResult.size());
 
     // and delete
     recordStore.delete("/tot".getBytes(), "/u".getBytes());
-    List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan("/tot".getBytes(), "/u".getBytes());
+    List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan("/tot".getBytes(), "/u".getBytes(), 0);
     assertEquals(0, scanResult2.size());
   }
 

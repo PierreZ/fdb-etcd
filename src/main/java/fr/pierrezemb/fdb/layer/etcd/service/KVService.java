@@ -56,13 +56,14 @@ public class KVService extends KVGrpc.KVVertxImplBase {
   public void range(EtcdIoRpcProto.RangeRequest request, Promise<EtcdIoRpcProto.RangeResponse> response) {
 
     List<EtcdRecord.KeyValue> results = new ArrayList<>();
+    int version = Math.toIntExact(request.getRevision());
 
     if (request.getRangeEnd().isEmpty()) {
       // get
-      results.add(this.recordStore.get(request.getKey().toByteArray()));
+      results.add(this.recordStore.get(request.getKey().toByteArray(), version));
     } else {
       // scan
-      results = this.recordStore.scan(request.getKey().toByteArray(), request.getRangeEnd().toByteArray());
+      results = this.recordStore.scan(request.getKey().toByteArray(), request.getRangeEnd().toByteArray(), version);
     }
 
     List<EtcdIoKvProto.KeyValue> kvs = results.stream()

@@ -3,6 +3,7 @@ package fr.pierrezemb.fdb.layer.etcd.store;
 import com.apple.foundationdb.record.RecordMetaData;
 import com.apple.foundationdb.record.RecordMetaDataBuilder;
 import com.apple.foundationdb.record.metadata.Key;
+import com.apple.foundationdb.record.metadata.expressions.KeyExpression;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
@@ -15,6 +16,7 @@ import com.apple.foundationdb.record.query.RecordQuery;
 import com.apple.foundationdb.record.query.expressions.Query;
 import com.apple.foundationdb.tuple.Tuple;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
@@ -58,10 +60,16 @@ public class EtcdRecordStore {
     // Create a primary key composed of the key and version
     metadataBuilder.getRecordType("KeyValue").setPrimaryKey(Key.Expressions.concat(
       Key.Expressions.field("key"),
-      Key.Expressions.field("version")
-    ));
+      // we need to specify the whole thing to avoid a bug in protobuf 3 :(
+      // cc https://github.com/FoundationDB/fdb-record-layer/blob/e58cfe8af6e8798d49498b9897457874b9804a92/docs/Overview.md#indexing-and-querying-of-missing--null-values
+      // "This means that when using Protobuf version 3 an integer field that happens to be zero or a string field
+      // that happens to be the empty string will have all of the special null value behaviors listed above."
+      //
+      // it turns out version is often equals to 0
+      Key.Expressions.field("version", KeyExpression.FanType.None, Key.Evaluated.NullStandin.NOT_NULL))
+    );
 
-    // record-layer has the capacity to set versions on each records. Default is to use versionstamp
+    // record-layer has the capacity to set versions on each records.
     // see https://github.com/FoundationDB/fdb-record-layer/blob/master/docs/Overview.md#indexing-by-version
     metadataBuilder.setStoreRecordVersions(true);
 
@@ -72,20 +80,25 @@ public class EtcdRecordStore {
       .createOrOpen();
   }
 
+  public EtcdRecord.KeyValue get(byte[] toByteArray) {
+    return get(toByteArray, 0);
+  }
+
   /**
    * get an Etcd record.
    *
    * @param key
    * @return
    */
-  public EtcdRecord.KeyValue get(byte[] key) {
-    log.trace("retrieving record {}", key);
+  public EtcdRecord.KeyValue get(byte[] key, long version) {
+    log.trace("retrieving record {} for version {}", Arrays.toString(key), version);
     List<EtcdRecord.KeyValue> records = db.run(context -> {
-      RecordQuery.Builder queryBuilder = RecordQuery.newBuilder()
+      RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
-        .setFilter(Query.field("key").equalsValue(key));
-
-      RecordQuery query = queryBuilder.build();
+        .setFilter(Query.and(
+        Query.field("key").equalsValue(key),
+        Query.field("version").equalsValue(version))
+      ).build();
 
       return runQuery(context, query);
     });
@@ -107,21 +120,19 @@ public class EtcdRecordStore {
       .executeQuery(query)
       .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
         .mergeFrom(queriedRecord.getRecord()).build())
-      .map(r -> {
-        log.trace("found a record: {}", r);
-        return r;
-      })
       .asList().join();
   }
 
-  public List<EtcdRecord.KeyValue> scan(byte[] start, byte[] end) {
-    log.trace("scanning between {} and {}", start, end);
+  public List<EtcdRecord.KeyValue> scan(byte[] start, byte[] end, long version) {
+    log.trace("scanning between {} and {} with version {}", start, end, version);
     return db.run(context -> {
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
         .setFilter(Query.and(
-          Query.field("key").greaterThanOrEquals(start),
-          Query.field("key").lessThanOrEquals(end)
+    //  Query.and(
+        Query.field("key").greaterThanOrEquals(start),
+        Query.field("key").lessThanOrEquals(end)
+       // Query.field("version").greaterThanOrEquals(version)
         )).build();
 
       return runQuery(context, query);
@@ -134,15 +145,18 @@ public class EtcdRecordStore {
       // First we need to retrieve the right revision
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
-        .setFilter(Query.field("key").equalsValue(record.getKey())).build();
+        .setFilter(Query.field("key").equalsValue(record.getKey().toByteArray())).build();
 
-      long version = runQuery(context, query).stream().map(EtcdRecord.KeyValue::getVersion).max(Long::compare).orElse(0L);
+      long version = runQuery(context, query).stream()
+        .map(EtcdRecord.KeyValue::getVersion)
+        .max(Long::compare).orElse(-1L);
+      version += 1;
       EtcdRecord.KeyValue fixedRecord = record.toBuilder().setVersion(version).build();
 
-      log.trace("putting record {} in version {}", fixedRecord.toString(), version);
+      log.trace("putting record key '{}' in version {}", fixedRecord.getKey().toStringUtf8(), version);
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
       recordStore.saveRecord(fixedRecord);
-      log.trace("successfully put record {} in version {}", fixedRecord.toString(), version);
+      log.trace("successfully put record {} in version {}", fixedRecord.toString(), fixedRecord.getVersion());
       return null;
     });
   }
@@ -151,7 +165,6 @@ public class EtcdRecordStore {
     Integer count = this.db.run(context -> {
       log.trace("deleting between {} and {}", start, end);
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
-
 
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
@@ -170,7 +183,7 @@ public class EtcdRecordStore {
           log.trace("found a record to delete: {}", r);
           return r;
         })
-        .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), null)))
+        .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion())))
         .getCount()
         .join();
     });
