@@ -66,6 +66,8 @@ public class KVServiceTest extends FDBTestBase {
 
     // create client
     client = Client.builder().endpoints("http://localhost:8080").build();
+    // uncomment this to test on real fdb
+    // client = Client.builder().endpoints("http://localhost:2379").build();
     kvClient = client.getKVClient();
   }
 

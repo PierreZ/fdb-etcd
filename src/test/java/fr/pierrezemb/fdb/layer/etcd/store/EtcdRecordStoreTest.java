@@ -30,6 +30,7 @@ class EtcdRecordStoreTest extends FDBTestBase {
     ByteString key = ByteString.copyFromUtf8("/toto");
     EtcdRecord.KeyValue request = EtcdRecord.KeyValue
       .newBuilder()
+      .setVersion(1)
       .setKey(key)
       .setValue(ByteString.copyFromUtf8("tat")).build();
     recordStore.put(request);
@@ -41,6 +42,7 @@ class EtcdRecordStoreTest extends FDBTestBase {
     ByteString key2 = ByteString.copyFromUtf8("/toto2");
     EtcdRecord.KeyValue request2 = EtcdRecord.KeyValue
       .newBuilder()
+      .setVersion(1)
       .setKey(key2)
       .setValue(ByteString.copyFromUtf8("tat")).build();
     recordStore.put(request2);
@@ -49,12 +51,12 @@ class EtcdRecordStoreTest extends FDBTestBase {
     assertEquals("stored request is different :(", request, storedRecord2);
 
     // and scan!
-    List<EtcdRecord.KeyValue> scanResult = recordStore.scan("/tot".getBytes(), "/u".getBytes(), 0);
+    List<EtcdRecord.KeyValue> scanResult = recordStore.scan("/tot".getBytes(), "/u".getBytes(), 1);
     assertEquals(2, scanResult.size());
 
     // and delete
     recordStore.delete("/tot".getBytes(), "/u".getBytes());
-    List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan("/tot".getBytes(), "/u".getBytes(), 0);
+    List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan("/tot".getBytes(), "/u".getBytes(), 1);
     assertEquals(0, scanResult2.size());
   }
 
@@ -63,3 +65,9 @@ class EtcdRecordStoreTest extends FDBTestBase {
     super.internalShutdown();
   }
 }
+//  assertEquals("stored request key is different :(",
+//                 new String(request.getKey().toByteArray(), StandardCharsets.UTF_8),
+//  new String(storedRecord.getKey().toByteArray(), StandardCharsets.UTF_8));
+//  assertEquals("stored request value is different :(",
+//  new String(request.getValue().toByteArray(), StandardCharsets.UTF_8),
+//  new String(storedRecord.getValue().toByteArray(), StandardCharsets.UTF_8));

@@ -2,8 +2,9 @@ package fr.pierrezemb.fdb.layer.etcd.store;
 
 import com.apple.foundationdb.record.RecordMetaData;
 import com.apple.foundationdb.record.RecordMetaDataBuilder;
+import com.apple.foundationdb.record.metadata.Index;
+import com.apple.foundationdb.record.metadata.IndexTypes;
 import com.apple.foundationdb.record.metadata.Key;
-import com.apple.foundationdb.record.metadata.expressions.KeyExpression;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
@@ -60,14 +61,11 @@ public class EtcdRecordStore {
     // Create a primary key composed of the key and version
     metadataBuilder.getRecordType("KeyValue").setPrimaryKey(Key.Expressions.concat(
       Key.Expressions.field("key"),
-      // we need to specify the whole thing to avoid a bug in protobuf 3 :(
-      // cc https://github.com/FoundationDB/fdb-record-layer/blob/e58cfe8af6e8798d49498b9897457874b9804a92/docs/Overview.md#indexing-and-querying-of-missing--null-values
-      // "This means that when using Protobuf version 3 an integer field that happens to be zero or a string field
-      // that happens to be the empty string will have all of the special null value behaviors listed above."
-      //
-      // it turns out version is often equals to 0
-      Key.Expressions.field("version", KeyExpression.FanType.None, Key.Evaluated.NullStandin.NOT_NULL))
-    );
+      Key.Expressions.field("version")));
+
+    // create ranking index on version
+    metadataBuilder.addIndex("KeyValue",
+      new Index("version_rank_per_key", Key.Expressions.field("version").groupBy(Key.Expressions.field("key")), IndexTypes.RANK));
 
     // record-layer has the capacity to set versions on each records.
     // see https://github.com/FoundationDB/fdb-record-layer/blob/master/docs/Overview.md#indexing-by-version
@@ -95,10 +93,16 @@ public class EtcdRecordStore {
     List<EtcdRecord.KeyValue> records = db.run(context -> {
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
-        .setFilter(Query.and(
-        Query.field("key").equalsValue(key),
-        Query.field("version").equalsValue(version))
-      ).build();
+        .setFilter(
+          version == 0 ?
+            // if version is zero, we need to retrieve latest
+            Query.field("key").equalsValue(key) :
+            // if version is superior to zero, we need to retrieve the exact version
+            // because 0 is the null value in protobuf 3, versions needs to start at 1
+            Query.and(
+              Query.field("key").equalsValue(key),
+              Query.field("version").equalsValue(version))
+        ).build();
 
       return runQuery(context, query);
     });
@@ -128,19 +132,24 @@ public class EtcdRecordStore {
     return db.run(context -> {
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
-        .setFilter(Query.and(
-    //  Query.and(
-        Query.field("key").greaterThanOrEquals(start),
-        Query.field("key").lessThanOrEquals(end)
-       // Query.field("version").greaterThanOrEquals(version)
-        )).build();
+        .setFilter(
+          version == 0 ?
+            Query.and(
+              Query.field("key").greaterThanOrEquals(start),
+              Query.field("key").lessThanOrEquals(end)) :
+            Query.and(
+              Query.and(
+                Query.field("key").greaterThanOrEquals(start),
+                Query.field("key").lessThanOrEquals(end)),
+              Query.field("version").equalsValue(version))
+        ).build();
 
       return runQuery(context, query);
     });
   }
 
-  public void put(EtcdRecord.KeyValue record) {
-    this.db.run(context -> {
+  public EtcdRecord.KeyValue put(EtcdRecord.KeyValue record) {
+    return this.db.run(context -> {
 
       // First we need to retrieve the right revision
       RecordQuery query = RecordQuery.newBuilder()
@@ -149,7 +158,7 @@ public class EtcdRecordStore {
 
       long version = runQuery(context, query).stream()
         .map(EtcdRecord.KeyValue::getVersion)
-        .max(Long::compare).orElse(-1L);
+        .max(Long::compare).orElse(0L);
       version += 1;
       EtcdRecord.KeyValue fixedRecord = record.toBuilder().setVersion(version).build();
 
@@ -157,7 +166,7 @@ public class EtcdRecordStore {
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
       recordStore.saveRecord(fixedRecord);
       log.trace("successfully put record {} in version {}", fixedRecord.toString(), fixedRecord.getVersion());
-      return null;
+      return fixedRecord;
     });
   }
 

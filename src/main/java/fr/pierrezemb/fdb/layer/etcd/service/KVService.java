@@ -35,18 +35,32 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void put(EtcdIoRpcProto.PutRequest request, Promise<EtcdIoRpcProto.PutResponse> response) {
+    EtcdRecord.KeyValue put;
     try {
-      this.recordStore.put(ProtoUtils.from(request));
+      put = this.recordStore.put(ProtoUtils.from(request));
     } catch (InvalidProtocolBufferException e) {
       response.fail(e);
       return;
     }
-    response.complete();
+    response.complete(
+      EtcdIoRpcProto
+        .PutResponse.newBuilder()
+        .setHeader(
+          EtcdIoRpcProto.ResponseHeader.newBuilder().setRevision(put.getVersion()).build()
+        ).build()
+    );
   }
 
   /**
    * <pre>
-   * Range gets the keys in the range from the key-value store.
+   *   range retrieves keys.
+   * 	 By default, Get will return the value for "key", if any.
+   * 	 When passed WithRange(end), Get will return the keys in the range [key, end).
+   * 	 When passed WithFromKey(), Get returns keys greater than or equal to key.
+   * 	 When passed WithRev(rev) with rev > 0, Get retrieves keys at the given revision;
+   * 	 if the required revision is compacted, the request will fail with ErrCompacted .
+   * 	 When passed WithLimit(limit), the number of returned keys is bounded by limit.
+   * 	 When passed WithSort(), the keys will be sorted.
    * </pre>
    *
    * @param request
