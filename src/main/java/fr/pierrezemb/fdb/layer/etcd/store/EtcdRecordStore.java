@@ -1,22 +1,24 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
-import com.apple.foundationdb.record.EndpointType;
 import com.apple.foundationdb.record.RecordMetaData;
 import com.apple.foundationdb.record.RecordMetaDataBuilder;
-import com.apple.foundationdb.record.ScanProperties;
+import com.apple.foundationdb.record.metadata.Index;
+import com.apple.foundationdb.record.metadata.IndexTypes;
 import com.apple.foundationdb.record.metadata.Key;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStore;
-import com.apple.foundationdb.record.provider.foundationdb.FDBStoredRecord;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.DirectoryLayerDirectory;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpace;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpaceDirectory;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpacePath;
+import com.apple.foundationdb.record.query.RecordQuery;
+import com.apple.foundationdb.record.query.expressions.Query;
 import com.apple.foundationdb.tuple.Tuple;
-import com.google.protobuf.Message;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
 import org.slf4j.Logger;
@@ -53,9 +55,21 @@ public class EtcdRecordStore {
     RecordMetaDataBuilder metadataBuilder = RecordMetaData.newBuilder()
       .setRecords(EtcdRecord.getDescriptor());
 
-    metadataBuilder.getRecordType("KeyValue").setPrimaryKey(Key.Expressions.field("key"));
     // This can be stored within FDB,
     // see https://github.com/FoundationDB/fdb-record-layer/blob/master/fdb-record-layer-core/src/test/java/com/apple/foundationdb/record/provider/foundationdb/FDBMetaDataStoreTest.java#L101
+    //
+    // Create a primary key composed of the key and version
+    metadataBuilder.getRecordType("KeyValue").setPrimaryKey(Key.Expressions.concat(
+      Key.Expressions.field("key"),
+      Key.Expressions.field("version")));
+
+    // create ranking index on version
+    metadataBuilder.addIndex("KeyValue",
+      new Index("version_rank_per_key", Key.Expressions.field("version").groupBy(Key.Expressions.field("key")), IndexTypes.RANK));
+
+    // record-layer has the capacity to set versions on each records.
+    // see https://github.com/FoundationDB/fdb-record-layer/blob/master/docs/Overview.md#indexing-by-version
+    metadataBuilder.setStoreRecordVersions(true);
 
     recordStoreProvider = context -> FDBRecordStore.newBuilder()
       .setMetaDataProvider(metadataBuilder)
@@ -64,67 +78,125 @@ public class EtcdRecordStore {
       .createOrOpen();
   }
 
-  public EtcdRecord.KeyValue get(Tuple key) {
-    log.trace("retrieving record {}", key.toString());
-    return db.run(context -> {
-      FDBStoredRecord<Message> storedMessage = recordStoreProvider.apply(context).loadRecord(key);
-      if (storedMessage == null) {
-        return null;
-      }
-      EtcdRecord.KeyValue result = EtcdRecord.KeyValue.newBuilder()
-        .mergeFrom(storedMessage.getRecord())
-        .build();
+  public EtcdRecord.KeyValue get(byte[] toByteArray) {
+    return get(toByteArray, 0);
+  }
 
-      log.trace("found a record: {}", result.toString());
-      return result;
+  /**
+   * get an Etcd record.
+   *
+   * @param key
+   * @return
+   */
+  public EtcdRecord.KeyValue get(byte[] key, long version) {
+    log.trace("retrieving record {} for version {}", Arrays.toString(key), version);
+    List<EtcdRecord.KeyValue> records = db.run(context -> {
+      RecordQuery query = RecordQuery.newBuilder()
+        .setRecordType("KeyValue")
+        .setFilter(
+          version == 0 ?
+            // if version is zero, we need to retrieve latest
+            Query.field("key").equalsValue(key) :
+            // if version is superior to zero, we need to retrieve the exact version
+            // because 0 is the null value in protobuf 3, versions needs to start at 1
+            Query.and(
+              Query.field("key").equalsValue(key),
+              Query.field("version").equalsValue(version))
+        ).build();
+
+      return runQuery(context, query);
+    });
+
+    if (records.size() == 0) {
+      log.warn("cannot find any record for key {}", key);
+      return null;
+    }
+
+    // return the highest version for a given key
+    return records.stream().max(Comparator.comparing(EtcdRecord.KeyValue::getVersion)).get();
+  }
+
+  private List<EtcdRecord.KeyValue> runQuery(FDBRecordContext context, RecordQuery query) {
+    // this returns an asynchronous cursor over the results of our query
+    return recordStoreProvider
+      .apply(context)
+      // this returns an asynchronous cursor over the results of our query
+      .executeQuery(query)
+      .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
+        .mergeFrom(queriedRecord.getRecord()).build())
+      .asList().join();
+  }
+
+  public List<EtcdRecord.KeyValue> scan(byte[] start, byte[] end, long version) {
+    log.trace("scanning between {} and {} with version {}", start, end, version);
+    return db.run(context -> {
+      RecordQuery query = RecordQuery.newBuilder()
+        .setRecordType("KeyValue")
+        .setFilter(
+          version == 0 ?
+            Query.and(
+              Query.field("key").greaterThanOrEquals(start),
+              Query.field("key").lessThanOrEquals(end)) :
+            Query.and(
+              Query.and(
+                Query.field("key").greaterThanOrEquals(start),
+                Query.field("key").lessThanOrEquals(end)),
+              Query.field("version").equalsValue(version))
+        ).build();
+
+      return runQuery(context, query);
     });
   }
 
-  public List<EtcdRecord.KeyValue> scan(Tuple start, Tuple end) {
-    log.trace("scanning between {} and {}", start.toString(), end.toString());
-    return db.run(context -> {
+  public EtcdRecord.KeyValue put(EtcdRecord.KeyValue record) {
+    return this.db.run(context -> {
+
+      // First we need to retrieve the right revision
+      RecordQuery query = RecordQuery.newBuilder()
+        .setRecordType("KeyValue")
+        .setFilter(Query.field("key").equalsValue(record.getKey().toByteArray())).build();
+
+      long version = runQuery(context, query).stream()
+        .map(EtcdRecord.KeyValue::getVersion)
+        .max(Long::compare).orElse(0L);
+      version += 1;
+      EtcdRecord.KeyValue fixedRecord = record.toBuilder().setVersion(version).build();
+
+      log.trace("putting record key '{}' in version {}", fixedRecord.getKey().toStringUtf8(), version);
+      FDBRecordStore recordStore = recordStoreProvider.apply(context);
+      recordStore.saveRecord(fixedRecord);
+      log.trace("successfully put record {} in version {}", fixedRecord.toString(), fixedRecord.getVersion());
+      return fixedRecord;
+    });
+  }
+
+  public Integer delete(byte[] start, byte[] end) {
+    Integer count = this.db.run(context -> {
+      log.trace("deleting between {} and {}", start, end);
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
 
-      // this returns an asynchronous cursor over the results of our query
-      return recordStore.scanRecords(
-        start, end,
-        EndpointType.RANGE_INCLUSIVE, EndpointType.RANGE_INCLUSIVE,
-        null, ScanProperties.FORWARD_SCAN)
+      RecordQuery query = RecordQuery.newBuilder()
+        .setRecordType("KeyValue")
+        .setFilter(Query.and(
+          Query.field("key").greaterThanOrEquals(start),
+          Query.field("key").lessThanOrEquals(end)
+        )).build();
+
+      return recordStoreProvider
+        .apply(context)
+        // this returns an asynchronous cursor over the results of our query
+        .executeQuery(query)
         .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
           .mergeFrom(queriedRecord.getRecord()).build())
         .map(r -> {
-          log.trace("found a record: {}", r);
+          log.trace("found a record to delete: {}", r);
           return r;
         })
-        .asList().join();
-    });
-  }
-
-  public void put(EtcdRecord.KeyValue record) {
-    this.db.run(context -> {
-      log.trace("putting record {}", record.toString());
-      FDBRecordStore recordStore = recordStoreProvider.apply(context);
-      return recordStore.saveRecord(record);
-    });
-  }
-
-  public Integer delete(Tuple start, Tuple end) {
-    return this.db.run(context -> {
-      FDBRecordStore recordStore = recordStoreProvider.apply(context);
-      // TODO: split code and return list of deletes keys
-
-      return recordStore.scanRecords(
-        start, end,
-        EndpointType.RANGE_INCLUSIVE, EndpointType.RANGE_INCLUSIVE,
-        null, ScanProperties.FORWARD_SCAN)
-        .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder().mergeFrom(queriedRecord.getRecord()).build())
-        .map(queriedRecord -> {
-          log.trace("deleting " + queriedRecord.toString());
-          return queriedRecord;
-        })
-        .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray())))
+        .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion())))
         .getCount()
         .join();
     });
+    log.trace("deleted {} records", count);
+    return count;
   }
 }

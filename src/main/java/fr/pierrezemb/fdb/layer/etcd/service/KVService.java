@@ -1,7 +1,6 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
 
-import com.apple.foundationdb.tuple.Tuple;
 import com.google.protobuf.InvalidProtocolBufferException;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.KVGrpc;
@@ -36,18 +35,32 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void put(EtcdIoRpcProto.PutRequest request, Promise<EtcdIoRpcProto.PutResponse> response) {
+    EtcdRecord.KeyValue put;
     try {
-      this.recordStore.put(ProtoUtils.from(request));
+      put = this.recordStore.put(ProtoUtils.from(request));
     } catch (InvalidProtocolBufferException e) {
       response.fail(e);
       return;
     }
-    response.complete();
+    response.complete(
+      EtcdIoRpcProto
+        .PutResponse.newBuilder()
+        .setHeader(
+          EtcdIoRpcProto.ResponseHeader.newBuilder().setRevision(put.getVersion()).build()
+        ).build()
+    );
   }
 
   /**
    * <pre>
-   * Range gets the keys in the range from the key-value store.
+   *   range retrieves keys.
+   * 	 By default, Get will return the value for "key", if any.
+   * 	 When passed WithRange(end), Get will return the keys in the range [key, end).
+   * 	 When passed WithFromKey(), Get returns keys greater than or equal to key.
+   * 	 When passed WithRev(rev) with rev > 0, Get retrieves keys at the given revision;
+   * 	 if the required revision is compacted, the request will fail with ErrCompacted .
+   * 	 When passed WithLimit(limit), the number of returned keys is bounded by limit.
+   * 	 When passed WithSort(), the keys will be sorted.
    * </pre>
    *
    * @param request
@@ -57,14 +70,14 @@ public class KVService extends KVGrpc.KVVertxImplBase {
   public void range(EtcdIoRpcProto.RangeRequest request, Promise<EtcdIoRpcProto.RangeResponse> response) {
 
     List<EtcdRecord.KeyValue> results = new ArrayList<>();
+    int version = Math.toIntExact(request.getRevision());
 
     if (request.getRangeEnd().isEmpty()) {
       // get
-      results.add(this.recordStore.get(Tuple.from(request.getKey().toByteArray())));
+      results.add(this.recordStore.get(request.getKey().toByteArray(), version));
     } else {
       // scan
-      results = this.recordStore.scan(
-        Tuple.from(request.getKey().toByteArray()), Tuple.from(request.getRangeEnd().toByteArray()));
+      results = this.recordStore.scan(request.getKey().toByteArray(), request.getRangeEnd().toByteArray(), version);
     }
 
     List<EtcdIoKvProto.KeyValue> kvs = results.stream()
@@ -121,10 +134,9 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void deleteRange(EtcdIoRpcProto.DeleteRangeRequest request, Promise<EtcdIoRpcProto.DeleteRangeResponse> response) {
-
     Integer count = this.recordStore.delete(
-      Tuple.from(request.getKey().toByteArray()),
-      request.getRangeEnd().isEmpty() ? Tuple.from(request.getKey().toByteArray()) : Tuple.from(request.getRangeEnd().toByteArray()));
+      request.getKey().toByteArray(),
+      request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray());
     response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
   }
 }

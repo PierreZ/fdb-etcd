@@ -66,9 +66,34 @@ public class KVServiceTest extends FDBTestBase {
 
     // create client
     client = Client.builder().endpoints("http://localhost:8080").build();
+    // uncomment this to test on real fdb
+    // client = Client.builder().endpoints("http://localhost:2379").build();
     kvClient = client.getKVClient();
   }
 
+  @Test
+  public void testDelete() throws Exception {
+
+    // cleanup any tests
+    kvClient.delete(ByteSequence.from("s".getBytes()));
+
+    // Put content so that we actually have something to delete
+    testPut();
+
+    ByteSequence keyToDelete = SAMPLE_KEY;
+
+    // count keys about to delete
+    CompletableFuture<GetResponse> getFeature = kvClient.get(keyToDelete);
+    GetResponse resp = getFeature.get();
+
+    // delete the keys
+    CompletableFuture<DeleteResponse> deleteFuture = kvClient.delete(keyToDelete);
+    DeleteResponse delResp = deleteFuture.get();
+    assertEquals(resp.getKvs().size(), delResp.getDeleted());
+
+    GetResponse responseAfterDelete = kvClient.get(keyToDelete).get();
+    assertEquals(0, responseAfterDelete.getKvs().size());
+  }
 
   @Test
   public void testPut() throws Exception {
@@ -76,6 +101,8 @@ public class KVServiceTest extends FDBTestBase {
     PutResponse response = feature.get();
     assertTrue(response.getHeader() != null);
     assertTrue(!response.hasPrevKv());
+
+    kvClient.delete(SAMPLE_KEY).get();
   }
 
   @Test
@@ -92,7 +119,6 @@ public class KVServiceTest extends FDBTestBase {
     assertTrue(actualMessage.contains(expectedMessage));
   }
 
-
   @Test
   public void testGet() throws Exception {
     CompletableFuture<PutResponse> feature = kvClient.put(SAMPLE_KEY_2, SAMPLE_VALUE_2);
@@ -105,7 +131,6 @@ public class KVServiceTest extends FDBTestBase {
   }
 
   @Test
-  @Disabled("no rev for now")
   public void testGetWithRev() throws Exception {
     CompletableFuture<PutResponse> feature = kvClient.put(SAMPLE_KEY_3, SAMPLE_VALUE);
     PutResponse putResp = feature.get();
@@ -135,25 +160,6 @@ public class KVServiceTest extends FDBTestBase {
     }
   }
 
-  @Test
-  public void testDelete() throws Exception {
-    // Put content so that we actually have something to delete
-    testPut();
-
-    ByteSequence keyToDelete = SAMPLE_KEY;
-
-    // count keys about to delete
-    CompletableFuture<GetResponse> getFeature = kvClient.get(keyToDelete);
-    GetResponse resp = getFeature.get();
-
-    // delete the keys
-    CompletableFuture<DeleteResponse> deleteFuture = kvClient.delete(keyToDelete);
-    DeleteResponse delResp = deleteFuture.get();
-    assertEquals(resp.getKvs().size(), delResp.getDeleted());
-
-    GetResponse responseAfterDelete = kvClient.get(keyToDelete).get();
-    assertEquals(0, responseAfterDelete.getKvs().size());
-  }
 
   @Test
   public void testGetAndDeleteWithPrefix() throws Exception {
