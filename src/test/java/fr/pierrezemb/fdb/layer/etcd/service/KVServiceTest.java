@@ -5,7 +5,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import fr.pierrezemb.fdb.layer.etcd.FDBTestBase;
+import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
 import fr.pierrezemb.fdb.layer.etcd.MainVerticle;
 import fr.pierrezemb.fdb.layer.etcd.TestUtil;
 import io.etcd.jetcd.ByteSequence;
@@ -26,6 +26,7 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -42,23 +43,27 @@ import org.junit.jupiter.api.extension.ExtendWith;
  */
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class KVServiceTest extends FDBTestBase {
+public class KVServiceTest {
 
   private static final ByteSequence SAMPLE_KEY = ByteSequence.from("sample_key".getBytes());
   private static final ByteSequence SAMPLE_VALUE = ByteSequence.from("sample_value".getBytes());
   private static final ByteSequence SAMPLE_KEY_2 = ByteSequence.from("sample_key2".getBytes());
   private static final ByteSequence SAMPLE_VALUE_2 = ByteSequence.from("sample_value2".getBytes());
   private static final ByteSequence SAMPLE_KEY_3 = ByteSequence.from("sample_key3".getBytes());
+
   private KV kvClient;
   private Client client;
+  private FoundationDBContainer container = new FoundationDBContainer();
+  private File clusterFile;
 
   @BeforeAll
   void deploy_verticle(Vertx vertx, VertxTestContext testContext) throws IOException, InterruptedException {
 
-    super.internalSetup();
+    container.start();
+    clusterFile = container.getClusterFile();
 
     DeploymentOptions options = new DeploymentOptions()
-      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFilePath)
+      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFile.getAbsolutePath())
       );
 
     // deploy verticle
@@ -66,7 +71,7 @@ public class KVServiceTest extends FDBTestBase {
 
     // create client
     client = Client.builder().endpoints("http://localhost:8080").build();
-    // uncomment this to test on real fdb
+    // uncomment this to test on real etcd
     // client = Client.builder().endpoints("http://localhost:2379").build();
     kvClient = client.getKVClient();
   }
@@ -241,7 +246,7 @@ public class KVServiceTest extends FDBTestBase {
 
   @AfterAll
   void tearDown() {
-    super.internalShutdown();
+    container.stop();
+    clusterFile.delete();
   }
-
 }

@@ -5,7 +5,8 @@ import static org.junit.Assert.assertNotNull;
 
 import com.google.protobuf.ByteString;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import fr.pierrezemb.fdb.layer.etcd.FDBTestBase;
+import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import org.junit.jupiter.api.AfterAll;
@@ -14,14 +15,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class EtcdRecordStoreTest extends FDBTestBase {
+class EtcdRecordStoreTest {
 
   private EtcdRecordStore recordStore;
+  private FoundationDBContainer container = new FoundationDBContainer();
+  private File clusterFile;
 
   @BeforeAll
-  void setUp() throws IOException, InterruptedException {
-    super.internalSetup();
-    recordStore = new EtcdRecordStore(clusterFilePath);
+  void setUp() throws IOException {
+    container.start();
+    clusterFile = container.getClusterFile();
+    recordStore = new EtcdRecordStore(clusterFile.getPath());
   }
 
   @Test
@@ -62,12 +66,7 @@ class EtcdRecordStoreTest extends FDBTestBase {
 
   @AfterAll
   void tearsDown() {
-    super.internalShutdown();
+    container.stop();
+    clusterFile.delete();
   }
 }
-//  assertEquals("stored request key is different :(",
-//                 new String(request.getKey().toByteArray(), StandardCharsets.UTF_8),
-//  new String(storedRecord.getKey().toByteArray(), StandardCharsets.UTF_8));
-//  assertEquals("stored request value is different :(",
-//  new String(request.getValue().toByteArray(), StandardCharsets.UTF_8),
-//  new String(storedRecord.getValue().toByteArray(), StandardCharsets.UTF_8));
