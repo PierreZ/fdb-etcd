@@ -1,6 +1,7 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
 import static fr.pierrezemb.fdb.layer.etcd.TestUtil.bytesOf;
+import static fr.pierrezemb.fdb.layer.etcd.TestUtil.randomByteSequence;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -243,6 +244,25 @@ public class KVServiceTest {
     GetResponse getResp2 = kvClient.get(abc).get();
     assertEquals(1, getResp2.getKvs().size());
     assertEquals(oneTwoThree.toString(UTF_8), getResp2.getKvs().get(0).getValue().toString(UTF_8));
+  }
+
+  @Test
+  public void compact() throws Exception {
+    final ByteSequence key = randomByteSequence();
+    final ByteSequence value = randomByteSequence();
+
+    // Insert key twice to ensure we have at least two revisions
+    final PutResponse oldResponse = kvClient.put(key, value).get();
+    final PutResponse putResponse = kvClient.put(key, value).get();
+
+    final GetResponse getBeforeCompact = kvClient.get(key, GetOption.newBuilder().withRevision(oldResponse.getHeader().getRevision()).build()).get();
+    assertEquals("should not be empty", 1, getBeforeCompact.getKvs().size());
+
+    // Compact until latest revision
+    client.getKVClient().compact(putResponse.getHeader().getRevision()).get();
+
+    final GetResponse getAfterCompact = kvClient.get(key, GetOption.newBuilder().withRevision(oldResponse.getHeader().getRevision()).build()).get();
+    assertEquals("should be empty", 0, getAfterCompact.getKvs().size());
   }
 
   @AfterAll

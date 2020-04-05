@@ -212,4 +212,30 @@ public class EtcdRecordStore {
     log.trace("deleted {} records", count);
     return count;
   }
+
+  public void compact(long revision) {
+    Integer count = this.db.run(context -> {
+      log.warn("compacting any record before {}", revision);
+      FDBRecordStore recordStore = recordStoreProvider.apply(context);
+
+      RecordQuery query = RecordQuery.newBuilder()
+        .setRecordType("KeyValue")
+        .setFilter(Query.field("mod_revision").lessThanOrEquals(revision)).build();
+
+      return recordStoreProvider
+        .apply(context)
+        // this returns an asynchronous cursor over the results of our query
+        .executeQuery(query)
+        .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
+          .mergeFrom(queriedRecord.getRecord()).build())
+        .map(r -> {
+          log.trace("found a record to delete: {}", r);
+          return r;
+        })
+        .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion())))
+        .getCount()
+        .join();
+    });
+    log.trace("deleted {} records", count);
+  }
 }

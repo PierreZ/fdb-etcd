@@ -139,4 +139,20 @@ public class KVService extends KVGrpc.KVVertxImplBase {
       request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray());
     response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
   }
+
+  /**
+   * <pre>
+   * Compact compacts the event history in the etcd key-value store. The key-value
+   * store should be periodically compacted or the event history will continue to grow
+   * indefinitely.
+   * </pre>
+   *
+   * @param request
+   * @param response
+   */
+  @Override
+  public void compact(EtcdIoRpcProto.CompactionRequest request, Promise<EtcdIoRpcProto.CompactionResponse> response) {
+    this.recordStore.compact(request.getRevision());
+    response.complete();
+  }
 }
