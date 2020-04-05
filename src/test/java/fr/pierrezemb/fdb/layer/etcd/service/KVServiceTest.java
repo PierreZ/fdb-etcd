@@ -141,6 +141,7 @@ public class KVServiceTest {
     PutResponse putResp = feature.get();
     kvClient.put(SAMPLE_KEY_3, SAMPLE_VALUE_2).get();
     GetOption option = GetOption.newBuilder().withRevision(putResp.getHeader().getRevision()).build();
+    System.out.println(option.getRevision());
     CompletableFuture<GetResponse> getFeature = kvClient.get(SAMPLE_KEY_3, option);
     GetResponse response = getFeature.get();
     assertEquals(1, response.getKvs().size());

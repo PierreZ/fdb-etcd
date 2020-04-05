@@ -55,21 +55,27 @@ public class EtcdRecordStore {
     RecordMetaDataBuilder metadataBuilder = RecordMetaData.newBuilder()
       .setRecords(EtcdRecord.getDescriptor());
 
+    // record-layer has the capacity to set versions on each records.
+    // see https://github.com/FoundationDB/fdb-record-layer/blob/master/docs/Overview.md#indexing-by-version
+    metadataBuilder.setStoreRecordVersions(true);
+
     // This can be stored within FDB,
     // see https://github.com/FoundationDB/fdb-record-layer/blob/master/fdb-record-layer-core/src/test/java/com/apple/foundationdb/record/provider/foundationdb/FDBMetaDataStoreTest.java#L101
     //
     // Create a primary key composed of the key and version
     metadataBuilder.getRecordType("KeyValue").setPrimaryKey(Key.Expressions.concat(
       Key.Expressions.field("key"),
-      Key.Expressions.field("version")));
+      Key.Expressions.field("version"))); // Version in primary key not supported, so we need to use our version
 
-    // create ranking index on version
-    metadataBuilder.addIndex("KeyValue",
-      new Index("version_rank_per_key", Key.Expressions.field("version").groupBy(Key.Expressions.field("key")), IndexTypes.RANK));
+    // create index on `mod_revision` field, which is used to implement fetch of revisions
+    // not working: 	Suppressed: java.util.concurrent.ExecutionException:
+    // com.apple.foundationdb.record.metadata.expressions.KeyExpression$InvalidExpressionException:
+    // there must be exactly 1 version entry in version index
+    // metadataBuilder.addIndex("KeyValue",
+    //   new Index("kv-version", Key.Expressions.field("mod_revision"), IndexTypes.VERSION));
 
-    // record-layer has the capacity to set versions on each records.
-    // see https://github.com/FoundationDB/fdb-record-layer/blob/master/docs/Overview.md#indexing-by-version
-    metadataBuilder.setStoreRecordVersions(true);
+    metadataBuilder.addIndex("KeyValue", new Index(
+      "keyvalue-modversion", Key.Expressions.field("mod_revision"), IndexTypes.VALUE));
 
     recordStoreProvider = context -> FDBRecordStore.newBuilder()
       .setMetaDataProvider(metadataBuilder)
@@ -88,20 +94,19 @@ public class EtcdRecordStore {
    * @param key
    * @return
    */
-  public EtcdRecord.KeyValue get(byte[] key, long version) {
-    log.trace("retrieving record {} for version {}", Arrays.toString(key), version);
+  public EtcdRecord.KeyValue get(byte[] key, long revision) {
+    log.trace("retrieving record {} for revision {}", Arrays.toString(key), revision);
     List<EtcdRecord.KeyValue> records = db.run(context -> {
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
         .setFilter(
-          version == 0 ?
-            // if version is zero, we need to retrieve latest
+          revision == 0 ?
+            // no revision
             Query.field("key").equalsValue(key) :
-            // if version is superior to zero, we need to retrieve the exact version
-            // because 0 is the null value in protobuf 3, versions needs to start at 1
+            // with revision
             Query.and(
               Query.field("key").equalsValue(key),
-              Query.field("version").equalsValue(version))
+              Query.field("mod_revision").lessThanOrEquals(revision))
         ).build();
 
       return runQuery(context, query);
@@ -127,13 +132,17 @@ public class EtcdRecordStore {
       .asList().join();
   }
 
-  public List<EtcdRecord.KeyValue> scan(byte[] start, byte[] end, long version) {
-    log.trace("scanning between {} and {} with version {}", start, end, version);
+  public List<EtcdRecord.KeyValue> scan(byte[] start, byte[] end) {
+    return scan(start, end, 0);
+  }
+
+  public List<EtcdRecord.KeyValue> scan(byte[] start, byte[] end, long revision) {
+    log.trace("scanning between {} and {} with revision {}", start, end, revision);
     return db.run(context -> {
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
         .setFilter(
-          version == 0 ?
+          revision == 0 ?
             Query.and(
               Query.field("key").greaterThanOrEquals(start),
               Query.field("key").lessThanOrEquals(end)) :
@@ -141,7 +150,7 @@ public class EtcdRecordStore {
               Query.and(
                 Query.field("key").greaterThanOrEquals(start),
                 Query.field("key").lessThanOrEquals(end)),
-              Query.field("version").equalsValue(version))
+              Query.field("mod_revision").lessThanOrEquals(revision))
         ).build();
 
       return runQuery(context, query);
@@ -160,7 +169,11 @@ public class EtcdRecordStore {
         .map(EtcdRecord.KeyValue::getVersion)
         .max(Long::compare).orElse(0L);
       version += 1;
-      EtcdRecord.KeyValue fixedRecord = record.toBuilder().setVersion(version).build();
+      EtcdRecord.KeyValue fixedRecord = record.toBuilder()
+        .setVersion(version)
+        .setCreateRevision(context.getReadVersion())
+        .setModRevision(context.getReadVersion()) // using read version as mod revision
+        .build();
 
       log.trace("putting record key '{}' in version {}", fixedRecord.getKey().toStringUtf8(), version);
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
