@@ -46,7 +46,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
       EtcdIoRpcProto
         .PutResponse.newBuilder()
         .setHeader(
-          EtcdIoRpcProto.ResponseHeader.newBuilder().setRevision(put.getVersion()).build()
+          EtcdIoRpcProto.ResponseHeader.newBuilder().setRevision(put.getModRevision()).build()
         ).build()
     );
   }

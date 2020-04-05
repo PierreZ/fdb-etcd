@@ -1,5 +1,6 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
@@ -32,35 +33,36 @@ class EtcdRecordStoreTest {
   void crud() {
     // inserting an element
     ByteString key = ByteString.copyFromUtf8("/toto");
+    ByteString value = ByteString.copyFromUtf8("tat");
+
     EtcdRecord.KeyValue request = EtcdRecord.KeyValue
       .newBuilder()
-      .setVersion(1)
       .setKey(key)
-      .setValue(ByteString.copyFromUtf8("tat")).build();
+      .setValue(value).build();
     recordStore.put(request);
     EtcdRecord.KeyValue storedRecord = recordStore.get(key.toByteArray());
     assertNotNull("storedRecord is null :(", storedRecord);
-    assertEquals("stored request is different :(", request, storedRecord);
+    assertArrayEquals("keys are different", key.toByteArray(), storedRecord.getKey().toByteArray());
+    assertArrayEquals("values are different", value.toByteArray(), storedRecord.getValue().toByteArray());
 
     // and a second
     ByteString key2 = ByteString.copyFromUtf8("/toto2");
     EtcdRecord.KeyValue request2 = EtcdRecord.KeyValue
       .newBuilder()
-      .setVersion(1)
       .setKey(key2)
       .setValue(ByteString.copyFromUtf8("tat")).build();
     recordStore.put(request2);
-    EtcdRecord.KeyValue storedRecord2 = recordStore.get(key.toByteArray());
-    assertNotNull("storedRecord is null :(", storedRecord2);
-    assertEquals("stored request is different :(", request, storedRecord2);
+    EtcdRecord.KeyValue storedRecord2 = recordStore.get(key2.toByteArray());
+    assertArrayEquals("keys are different", key2.toByteArray(), storedRecord2.getKey().toByteArray());
+    assertArrayEquals("values are different", value.toByteArray(), storedRecord2.getValue().toByteArray());
 
     // and scan!
-    List<EtcdRecord.KeyValue> scanResult = recordStore.scan("/tot".getBytes(), "/u".getBytes(), 1);
+    List<EtcdRecord.KeyValue> scanResult = recordStore.scan("/tot".getBytes(), "/u".getBytes());
     assertEquals(2, scanResult.size());
 
     // and delete
     recordStore.delete("/tot".getBytes(), "/u".getBytes());
-    List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan("/tot".getBytes(), "/u".getBytes(), 1);
+    List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan("/tot".getBytes(), "/u".getBytes());
     assertEquals(0, scanResult2.size());
   }
 
