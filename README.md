@@ -9,10 +9,12 @@ An experiment to provide ETCD layer on top of FoundationDB, built with [Record-L
 * Integrations test using a real FDB spawned with testcontainers and official Java etcd client,
 * Tests are backported from jetcd test cases
 * Supported operations:
-    * put
-    * get
-    * scan
-    * delete
+    * put,
+    * get,
+    * scan,
+    * delete,
+    * compact,
+* ETCD MVCC simulated using FDB's read version
 
 For TODO's, please have a look to the [Github issues](https://github.com/pierrez/fdb-etcd/issues).
 
