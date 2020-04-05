@@ -4,11 +4,9 @@ package fr.pierrezemb.fdb.layer.etcd.service;
 import com.google.protobuf.InvalidProtocolBufferException;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.KVGrpc;
-import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordStore;
 import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Promise;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -35,7 +33,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void put(EtcdIoRpcProto.PutRequest request, Promise<EtcdIoRpcProto.PutResponse> response) {
-    EtcdRecord.KeyValue put;
+    EtcdRecordStore.Result put;
     try {
       put = this.recordStore.put(ProtoUtils.from(request));
     } catch (InvalidProtocolBufferException e) {
@@ -46,7 +44,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
       EtcdIoRpcProto
         .PutResponse.newBuilder()
         .setHeader(
-          EtcdIoRpcProto.ResponseHeader.newBuilder().setRevision(put.getVersion()).build()
+          EtcdIoRpcProto.ResponseHeader.newBuilder().setRevision(put.getReadVersion()).build()
         ).build()
     );
   }
@@ -69,18 +67,18 @@ public class KVService extends KVGrpc.KVVertxImplBase {
   @Override
   public void range(EtcdIoRpcProto.RangeRequest request, Promise<EtcdIoRpcProto.RangeResponse> response) {
 
-    List<EtcdRecord.KeyValue> results = new ArrayList<>();
-    int version = Math.toIntExact(request.getRevision());
+    EtcdRecordStore.Result results;
+    int revision = Math.toIntExact(request.getRevision());
 
     if (request.getRangeEnd().isEmpty()) {
       // get
-      results.add(this.recordStore.get(request.getKey().toByteArray(), version));
+      results = this.recordStore.get(request.getKey().toByteArray(), revision);
     } else {
       // scan
-      results = this.recordStore.scan(request.getKey().toByteArray(), request.getRangeEnd().toByteArray(), version);
+      results = this.recordStore.scan(request.getKey().toByteArray(), request.getRangeEnd().toByteArray(), revision);
     }
 
-    List<EtcdIoKvProto.KeyValue> kvs = results.stream()
+    List<EtcdIoKvProto.KeyValue> kvs = results.getRecords().stream()
       .flatMap(Stream::ofNullable)
       .map(e -> EtcdIoKvProto.KeyValue.newBuilder()
         .setKey(e.getKey()).setValue(e.getValue()).build()).collect(Collectors.toList());
@@ -88,8 +86,10 @@ public class KVService extends KVGrpc.KVVertxImplBase {
     if (request.getSortOrder().getNumber() > 0) {
       kvs.sort(createComparatorFromRequest(request));
     }
-
-    response.complete(EtcdIoRpcProto.RangeResponse.newBuilder().addAllKvs(kvs).setCount(kvs.size()).build());
+    response.complete(EtcdIoRpcProto.RangeResponse.newBuilder()
+      .setHeader(
+        EtcdIoRpcProto.ResponseHeader.newBuilder().setRevision(results.getReadVersion()).build())
+      .addAllKvs(kvs).setCount(kvs.size()).build());
   }
 
   private Comparator<? super EtcdIoKvProto.KeyValue> createComparatorFromRequest(EtcdIoRpcProto.RangeRequest request) {
@@ -134,9 +134,13 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void deleteRange(EtcdIoRpcProto.DeleteRangeRequest request, Promise<EtcdIoRpcProto.DeleteRangeResponse> response) {
-    Integer count = this.recordStore.delete(
+    EtcdRecordStore.DeleteResult count = this.recordStore.delete(
       request.getKey().toByteArray(),
       request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray());
-    response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
+    response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder()
+      .setHeader(
+        EtcdIoRpcProto.ResponseHeader.newBuilder().setRevision(count.getReadVersion()).build()
+      )
+      .setDeleted(count.getCount()).build());
   }
 }

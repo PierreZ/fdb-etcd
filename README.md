@@ -13,6 +13,7 @@ An experiment to provide ETCD layer on top of FoundationDB, built with [Record-L
     * get
     * scan
     * delete
+* [etcd's MVCC](https://github.com/etcd-io/etcd/issues/6518) is simulated using FDB readVersion,
 
 For TODO's, please have a look to the [Github issues](https://github.com/pierrez/fdb-etcd/issues).
 

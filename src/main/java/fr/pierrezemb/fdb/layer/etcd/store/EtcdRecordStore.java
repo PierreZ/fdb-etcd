@@ -78,8 +78,8 @@ public class EtcdRecordStore {
       .createOrOpen();
   }
 
-  public EtcdRecord.KeyValue get(byte[] toByteArray) {
-    return get(toByteArray, 0);
+  public Result get(byte[] toByteArray) {
+    return get(toByteArray, 0, 0);
   }
 
   /**
@@ -88,9 +88,11 @@ public class EtcdRecordStore {
    * @param key
    * @return
    */
-  public EtcdRecord.KeyValue get(byte[] key, long version) {
+  public Result get(byte[] key, long version, long revision) {
     log.trace("retrieving record {} for version {}", Arrays.toString(key), version);
-    List<EtcdRecord.KeyValue> records = db.run(context -> {
+    Result records = db.run(context -> {
+
+
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
         .setFilter(
@@ -104,30 +106,42 @@ public class EtcdRecordStore {
               Query.field("version").equalsValue(version))
         ).build();
 
-      return runQuery(context, query);
+      return runQuery(context, query, revision);
     });
 
-    if (records.size() == 0) {
+    if (records.records.size() == 0) {
       log.warn("cannot find any record for key {}", key);
       return null;
     }
 
     // return the highest version for a given key
-    return records.stream().max(Comparator.comparing(EtcdRecord.KeyValue::getVersion)).get();
+    EtcdRecord.KeyValue results = records.records.stream().max(Comparator.comparing(EtcdRecord.KeyValue::getVersion)).get();
+    return new Result(Arrays.asList(results), records.readVersion);
   }
 
-  private List<EtcdRecord.KeyValue> runQuery(FDBRecordContext context, RecordQuery query) {
+  private Result runQuery(FDBRecordContext context, RecordQuery query, long revision) {
+    if (revision > 0) {
+      log.trace("setting readVersion to " + revision);
+      context.setReadVersion(revision);
+    }
+
+    log.trace("running query " + context.getReadVersion());
     // this returns an asynchronous cursor over the results of our query
-    return recordStoreProvider
+    List<EtcdRecord.KeyValue> records = recordStoreProvider
       .apply(context)
       // this returns an asynchronous cursor over the results of our query
       .executeQuery(query)
       .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
         .mergeFrom(queriedRecord.getRecord()).build())
+      .map(r -> {
+        log.trace("found a record: " + r.toString());
+        return r;
+      })
       .asList().join();
+    return new Result(records, context.getReadVersion());
   }
 
-  public List<EtcdRecord.KeyValue> scan(byte[] start, byte[] end, long version) {
+  public Result scan(byte[] start, byte[] end, long version, long revision) {
     log.trace("scanning between {} and {} with version {}", start, end, version);
     return db.run(context -> {
       RecordQuery query = RecordQuery.newBuilder()
@@ -144,11 +158,11 @@ public class EtcdRecordStore {
               Query.field("version").equalsValue(version))
         ).build();
 
-      return runQuery(context, query);
+      return runQuery(context, query, revision);
     });
   }
 
-  public EtcdRecord.KeyValue put(EtcdRecord.KeyValue record) {
+  public Result put(EtcdRecord.KeyValue record) {
     return this.db.run(context -> {
 
       // First we need to retrieve the right revision
@@ -156,22 +170,26 @@ public class EtcdRecordStore {
         .setRecordType("KeyValue")
         .setFilter(Query.field("key").equalsValue(record.getKey().toByteArray())).build();
 
-      long version = runQuery(context, query).stream()
+      long version = runQuery(context, query, 0).records.stream()
         .map(EtcdRecord.KeyValue::getVersion)
         .max(Long::compare).orElse(0L);
       version += 1;
-      EtcdRecord.KeyValue fixedRecord = record.toBuilder().setVersion(version).build();
+      EtcdRecord.KeyValue fixedRecord = record.toBuilder()
+        .setVersion(version) // set version for the given key, starting at 1
+        .setModRevision(context.getReadVersion()) // setting revision using fdb readVersion
+        .build();
 
       log.trace("putting record key '{}' in version {}", fixedRecord.getKey().toStringUtf8(), version);
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
       recordStore.saveRecord(fixedRecord);
       log.trace("successfully put record {} in version {}", fixedRecord.toString(), fixedRecord.getVersion());
-      return fixedRecord;
+      return new Result(Arrays.asList(fixedRecord), context.getReadVersion());
     });
   }
 
-  public Integer delete(byte[] start, byte[] end) {
-    Integer count = this.db.run(context -> {
+  public DeleteResult delete(byte[] start, byte[] end) {
+
+    return this.db.run(context -> {
       log.trace("deleting between {} and {}", start, end);
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
 
@@ -182,7 +200,7 @@ public class EtcdRecordStore {
           Query.field("key").lessThanOrEquals(end)
         )).build();
 
-      return recordStoreProvider
+      Integer count = recordStoreProvider
         .apply(context)
         // this returns an asynchronous cursor over the results of our query
         .executeQuery(query)
@@ -195,8 +213,58 @@ public class EtcdRecordStore {
         .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion())))
         .getCount()
         .join();
+      log.trace("deleted {} records", count);
+      return new DeleteResult(context.getReadVersion(), count.intValue());
     });
-    log.trace("deleted {} records", count);
-    return count;
   }
+
+  public Result get(byte[] toByteArray, int revision) {
+    return get(toByteArray, 0, revision);
+  }
+
+  public Result scan(byte[] toByteArray, byte[] toByteArray1, int revision) {
+    return scan(toByteArray, toByteArray1, 0, revision);
+  }
+
+  public Result scan(byte[] bytes, byte[] bytes1) {
+    return scan(bytes, bytes1, 0, 0);
+  }
+
+  public class Result {
+    private final List<EtcdRecord.KeyValue> records;
+    private final long readVersion;
+
+    public Result(List<EtcdRecord.KeyValue> records, long readVersion) {
+      this.records = records;
+      this.readVersion = readVersion;
+    }
+
+    public List<EtcdRecord.KeyValue> getRecords() {
+      return records;
+    }
+
+    public long getReadVersion() {
+      return readVersion;
+    }
+  }
+
+  public class DeleteResult {
+    private final long readVersion;
+    private final int count;
+
+    public DeleteResult(long readVersion, int count) {
+      this.readVersion = readVersion;
+      this.count = count;
+    }
+
+    public long getCount() {
+      return count;
+    }
+
+    public long getReadVersion() {
+      return readVersion;
+    }
+  }
+
+
 }
