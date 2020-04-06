@@ -1,10 +1,16 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
+import com.apple.foundationdb.record.FunctionNames;
+import com.apple.foundationdb.record.IsolationLevel;
 import com.apple.foundationdb.record.RecordMetaData;
 import com.apple.foundationdb.record.RecordMetaDataBuilder;
+import com.apple.foundationdb.record.TupleRange;
 import com.apple.foundationdb.record.metadata.Index;
+import com.apple.foundationdb.record.metadata.IndexAggregateFunction;
 import com.apple.foundationdb.record.metadata.IndexTypes;
 import com.apple.foundationdb.record.metadata.Key;
+import com.apple.foundationdb.record.metadata.expressions.EmptyKeyExpression;
+import com.apple.foundationdb.record.metadata.expressions.GroupingKeyExpression;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
@@ -18,8 +24,10 @@ import com.apple.foundationdb.record.query.expressions.Query;
 import com.apple.foundationdb.tuple.Tuple;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +39,17 @@ public class EtcdRecordStore {
   public final Function<FDBRecordContext, FDBRecordStore> recordStoreProvider;
   private final KeySpace keySpace;
   private final KeySpacePath path;
+  protected static final Index COUNT_INDEX = new Index(
+    "globalRecordCount",
+    new GroupingKeyExpression(EmptyKeyExpression.EMPTY,
+      0),
+    IndexTypes.COUNT);
+
+  protected static final Index COUNT_UPDATES_INDEX = new Index(
+    "globalRecordUpdateCount",
+    new GroupingKeyExpression(EmptyKeyExpression.EMPTY,
+      0),
+    IndexTypes.COUNT_UPDATES);
 
   public EtcdRecordStore(String clusterFilePath) {
 
@@ -76,6 +95,10 @@ public class EtcdRecordStore {
 
     metadataBuilder.addIndex("KeyValue", new Index(
       "keyvalue-modversion", Key.Expressions.field("mod_revision"), IndexTypes.VALUE));
+
+    // add a global index that will count all records and updates
+    metadataBuilder.addUniversalIndex(COUNT_INDEX);
+    metadataBuilder.addUniversalIndex(COUNT_UPDATES_INDEX);
 
     recordStoreProvider = context -> FDBRecordStore.newBuilder()
       .setMetaDataProvider(metadataBuilder)
@@ -237,5 +260,30 @@ public class EtcdRecordStore {
         .join();
     });
     log.trace("deleted {} records", count);
+  }
+
+  /**
+   * Compute stats using Indexes
+   * A (secondary) index in the Record Layer is a subspace of the record store uniquely associated with the index.
+   * This subspace is updated when records are inserted or updated in the same transaction
+   * so that it is always consistent with the (primary) record data.
+   *
+   * Here we have a global (above any record store) index that is updated.
+   * We can then retrieve for example number of records
+   * @return
+   */
+  public long stats() {
+    Long stat = this.db.run(context -> {
+      IndexAggregateFunction function = new IndexAggregateFunction(
+        FunctionNames.COUNT, COUNT_INDEX.getRootExpression(), COUNT_INDEX.getName());
+      FDBRecordStore recordStore = recordStoreProvider.apply(context);
+
+      return recordStore.evaluateAggregateFunction(Collections.singletonList("KeyValue"), function, Key.Evaluated.fromTuple(new Tuple()), IsolationLevel.SERIALIZABLE)
+        .thenApply(tuple -> tuple.getLong(0));
+    }).join();
+
+    log.info("we have around {} ETCD records", stat);
+
+    return stat;
   }
 }

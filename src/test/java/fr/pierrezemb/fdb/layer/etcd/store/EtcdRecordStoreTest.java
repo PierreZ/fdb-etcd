@@ -64,6 +64,9 @@ class EtcdRecordStoreTest {
     recordStore.delete("/tot".getBytes(), "/u".getBytes());
     List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan("/tot".getBytes(), "/u".getBytes());
     assertEquals(0, scanResult2.size());
+
+    long count = recordStore.stats();
+    assertEquals("count is bad", count, 2);
   }
 
   @AfterAll

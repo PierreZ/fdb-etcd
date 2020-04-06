@@ -55,5 +55,13 @@ Please make sure to update tests as appropriate.
 
 ## Resources
 
+### vert.x
+
 * [https://vertx.io/docs/vertx-grpc/java/](https://vertx.io/docs/vertx-grpc/java/)
-* [https://foundationdb.github.io/fdb-record-layer/GettingStarted.html](https://foundationdb.github.io/fdb-record-layer/GettingStarted.html)
+
+### Record-layer
+
+* [Getting started](https://foundationdb.github.io/fdb-record-layer/GettingStarted.html)
+* [Main example](https://github.com/FoundationDB/fdb-record-layer/blob/master/examples/src/main/java/com/apple/foundationdb/record/sample/Main.java)
+* [Overview](https://foundationdb.github.io/fdb-record-layer/Overview.html)
+* [Extending the record-layer + explanations about indexes](https://foundationdb.github.io/fdb-record-layer/Extending.html)
