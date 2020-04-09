@@ -196,16 +196,19 @@ public class EtcdRecordStore {
           Key.Evaluated.concatenate(record.getKey().toByteArray()), IsolationLevel.SERIALIZABLE)
         .join();
 
-      // debug: let's scan and print the index to see how it is built:
-      recordStoreProvider.apply(context).scanIndex(
-        INDEX_VERSION_PER_KEY,
-        IndexScanType.BY_GROUP,
-        TupleRange.ALL,
-        null, // continuation,
-        ScanProperties.FORWARD_SCAN
-      ).asList().join().stream().forEach(
-        indexEntry -> log.trace("found an indexEntry: key:'{}', value: '{}'", indexEntry.getKey(), indexEntry.getValue())
-      );
+      if (log.isTraceEnabled()) {
+        // debug: let's scan and print the index to see how it is built:
+        recordStoreProvider.apply(context).scanIndex(
+          INDEX_VERSION_PER_KEY,
+          IndexScanType.BY_GROUP,
+          TupleRange.ALL,
+          null, // continuation,
+          ScanProperties.FORWARD_SCAN
+        ).asList().join().stream().forEach(
+          indexEntry -> log.trace("found an indexEntry: key:'{}', value: '{}'", indexEntry.getKey(), indexEntry.getValue())
+        );
+      }
+
 
       long version = null == maxResult ? 1 : maxResult.getLong(0) + 1;
 
@@ -296,16 +299,18 @@ public class EtcdRecordStore {
         FunctionNames.COUNT, COUNT_INDEX.getRootExpression(), COUNT_INDEX.getName());
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
 
-      // debug: let's scan and print the index to see how it is built:
-      recordStoreProvider.apply(context).scanIndex(
-        COUNT_INDEX,
-        IndexScanType.BY_GROUP,
-        TupleRange.ALL,
-        null, // continuation,
-        ScanProperties.FORWARD_SCAN
-      ).asList().join().stream().forEach(
-        indexEntry -> log.trace("found an indexEntry for stats: key:'{}', value: '{}'", indexEntry.getKey(), indexEntry.getValue())
-      );
+      if (log.isTraceEnabled()) {
+        // debug: let's scan and print the index to see how it is built:
+        recordStoreProvider.apply(context).scanIndex(
+          COUNT_INDEX,
+          IndexScanType.BY_GROUP,
+          TupleRange.ALL,
+          null, // continuation,
+          ScanProperties.FORWARD_SCAN
+        ).asList().join().stream().forEach(
+          indexEntry -> log.trace("found an indexEntry for stats: key:'{}', value: '{}'", indexEntry.getKey(), indexEntry.getValue())
+        );
+      }
 
       return recordStore.evaluateAggregateFunction(EvaluationContext.EMPTY, Collections.singletonList("KeyValue"), function, TupleRange.ALL, IsolationLevel.SERIALIZABLE)
         .thenApply(tuple -> tuple.getLong(0));
