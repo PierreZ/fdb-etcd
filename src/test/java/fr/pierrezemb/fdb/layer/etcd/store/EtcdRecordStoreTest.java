@@ -18,8 +18,8 @@ import org.junit.jupiter.api.TestInstance;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class EtcdRecordStoreTest {
 
+  private final FoundationDBContainer container = new FoundationDBContainer();
   private EtcdRecordStore recordStore;
-  private FoundationDBContainer container = new FoundationDBContainer();
   private File clusterFile;
 
   @BeforeAll
@@ -66,7 +66,7 @@ class EtcdRecordStoreTest {
     assertEquals(0, scanResult2.size());
 
     long count = recordStore.stats();
-    assertEquals("count is bad", count, 2);
+    assertEquals("count is bad", 2, count);
   }
 
   @AfterAll

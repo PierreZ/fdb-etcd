@@ -1,9 +1,11 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
 import com.apple.foundationdb.record.FunctionNames;
+import com.apple.foundationdb.record.IndexScanType;
 import com.apple.foundationdb.record.IsolationLevel;
 import com.apple.foundationdb.record.RecordMetaData;
 import com.apple.foundationdb.record.RecordMetaDataBuilder;
+import com.apple.foundationdb.record.ScanProperties;
 import com.apple.foundationdb.record.TupleRange;
 import com.apple.foundationdb.record.metadata.Index;
 import com.apple.foundationdb.record.metadata.IndexAggregateFunction;
@@ -27,29 +29,31 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class EtcdRecordStore {
-  private static Logger log = LoggerFactory.getLogger(EtcdRecordStore.class);
-
-  public final FDBDatabase db;
-  public final Function<FDBRecordContext, FDBRecordStore> recordStoreProvider;
-  private final KeySpace keySpace;
-  private final KeySpacePath path;
   protected static final Index COUNT_INDEX = new Index(
     "globalRecordCount",
     new GroupingKeyExpression(EmptyKeyExpression.EMPTY,
       0),
     IndexTypes.COUNT);
-
+  // keep track of the version per key
+  protected static final Index INDEX_VERSION_PER_KEY = new Index(
+    "index-version-per-key",
+    Key.Expressions.field("version").groupBy(Key.Expressions.field("key")),
+    IndexTypes.MAX_EVER_LONG);
   protected static final Index COUNT_UPDATES_INDEX = new Index(
     "globalRecordUpdateCount",
     new GroupingKeyExpression(EmptyKeyExpression.EMPTY,
       0),
     IndexTypes.COUNT_UPDATES);
+  private static final Logger log = LoggerFactory.getLogger(EtcdRecordStore.class);
+  public final FDBDatabase db;
+  public final Function<FDBRecordContext, FDBRecordStore> recordStoreProvider;
+  private final KeySpace keySpace;
+  private final KeySpacePath path;
 
   public EtcdRecordStore(String clusterFilePath) {
 
@@ -96,9 +100,11 @@ public class EtcdRecordStore {
     metadataBuilder.addIndex("KeyValue", new Index(
       "keyvalue-modversion", Key.Expressions.field("mod_revision"), IndexTypes.VALUE));
 
+    // add an index to easily retrieve the max version for a given key, instead of scanning
+    metadataBuilder.addIndex("KeyValue", INDEX_VERSION_PER_KEY);
+
     // add a global index that will count all records and updates
-    metadataBuilder.addUniversalIndex(COUNT_INDEX);
-    metadataBuilder.addUniversalIndex(COUNT_UPDATES_INDEX);
+    metadataBuilder.addIndex("KeyValue", COUNT_INDEX);
 
     recordStoreProvider = context -> FDBRecordStore.newBuilder()
       .setMetaDataProvider(metadataBuilder)
@@ -178,20 +184,34 @@ public class EtcdRecordStore {
 
       return runQuery(context, query);
     });
+
   }
 
   public EtcdRecord.KeyValue put(EtcdRecord.KeyValue record) {
     return this.db.run(context -> {
 
-      // First we need to retrieve the right revision
-      RecordQuery query = RecordQuery.newBuilder()
-        .setRecordType("KeyValue")
-        .setFilter(Query.field("key").equalsValue(record.getKey().toByteArray())).build();
+      // retrieve version using an index
+      IndexAggregateFunction function = new IndexAggregateFunction(
+        FunctionNames.MAX_EVER, INDEX_VERSION_PER_KEY.getRootExpression(), INDEX_VERSION_PER_KEY.getName());
+      Tuple maxResult = recordStoreProvider.apply(context)
+        .evaluateAggregateFunction(
+          Collections.singletonList("KeyValue"), function,
+          Key.Evaluated.concatenate(record.getKey().toByteArray()), IsolationLevel.SERIALIZABLE)
+        .join();
 
-      long version = runQuery(context, query).stream()
-        .map(EtcdRecord.KeyValue::getVersion)
-        .max(Long::compare).orElse(0L);
-      version += 1;
+      // debug: let's scan and print the index to see how it is built:
+      recordStoreProvider.apply(context).scanIndex(
+        INDEX_VERSION_PER_KEY,
+        IndexScanType.BY_GROUP,
+        TupleRange.ALL,
+        null, // continuation,
+        ScanProperties.FORWARD_SCAN
+      ).asList().join().stream().forEach(
+        indexEntry -> log.trace("found an indexEntry: key:'{}', value: '{}'", indexEntry.getKey(), indexEntry.getValue())
+      );
+
+      long version = null == maxResult ? 1 : maxResult.getLong(0) + 1;
+
       EtcdRecord.KeyValue fixedRecord = record.toBuilder()
         .setVersion(version)
         .setCreateRevision(context.getReadVersion())
@@ -267,9 +287,10 @@ public class EtcdRecordStore {
    * A (secondary) index in the Record Layer is a subspace of the record store uniquely associated with the index.
    * This subspace is updated when records are inserted or updated in the same transaction
    * so that it is always consistent with the (primary) record data.
-   *
+   * <p>
    * Here we have a global (above any record store) index that is updated.
    * We can then retrieve for example number of records
+   *
    * @return
    */
   public long stats() {
