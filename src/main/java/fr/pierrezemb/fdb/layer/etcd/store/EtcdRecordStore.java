@@ -1,5 +1,6 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
+import com.apple.foundationdb.record.EvaluationContext;
 import com.apple.foundationdb.record.FunctionNames;
 import com.apple.foundationdb.record.IndexScanType;
 import com.apple.foundationdb.record.IsolationLevel;
@@ -34,21 +35,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class EtcdRecordStore {
+
+  // Keep a global track of the number of records stored
   protected static final Index COUNT_INDEX = new Index(
-    "globalRecordCount",
-    new GroupingKeyExpression(EmptyKeyExpression.EMPTY,
-      0),
-    IndexTypes.COUNT);
-  // keep track of the version per key
+    "globalRecordCount", new GroupingKeyExpression(EmptyKeyExpression.EMPTY, 0), IndexTypes.COUNT);
+
+  // keep track of the version per key with an index
   protected static final Index INDEX_VERSION_PER_KEY = new Index(
     "index-version-per-key",
     Key.Expressions.field("version").groupBy(Key.Expressions.field("key")),
     IndexTypes.MAX_EVER_LONG);
-  protected static final Index COUNT_UPDATES_INDEX = new Index(
-    "globalRecordUpdateCount",
-    new GroupingKeyExpression(EmptyKeyExpression.EMPTY,
-      0),
-    IndexTypes.COUNT_UPDATES);
+
   private static final Logger log = LoggerFactory.getLogger(EtcdRecordStore.class);
   public final FDBDatabase db;
   public final Function<FDBRecordContext, FDBRecordStore> recordStoreProvider;
@@ -104,7 +101,7 @@ public class EtcdRecordStore {
     metadataBuilder.addIndex("KeyValue", INDEX_VERSION_PER_KEY);
 
     // add a global index that will count all records and updates
-    metadataBuilder.addIndex("KeyValue", COUNT_INDEX);
+    metadataBuilder.addUniversalIndex(COUNT_INDEX);
 
     recordStoreProvider = context -> FDBRecordStore.newBuilder()
       .setMetaDataProvider(metadataBuilder)
@@ -299,7 +296,18 @@ public class EtcdRecordStore {
         FunctionNames.COUNT, COUNT_INDEX.getRootExpression(), COUNT_INDEX.getName());
       FDBRecordStore recordStore = recordStoreProvider.apply(context);
 
-      return recordStore.evaluateAggregateFunction(Collections.singletonList("KeyValue"), function, Key.Evaluated.fromTuple(new Tuple()), IsolationLevel.SERIALIZABLE)
+      // debug: let's scan and print the index to see how it is built:
+      recordStoreProvider.apply(context).scanIndex(
+        COUNT_INDEX,
+        IndexScanType.BY_GROUP,
+        TupleRange.ALL,
+        null, // continuation,
+        ScanProperties.FORWARD_SCAN
+      ).asList().join().stream().forEach(
+        indexEntry -> log.trace("found an indexEntry for stats: key:'{}', value: '{}'", indexEntry.getKey(), indexEntry.getValue())
+      );
+
+      return recordStore.evaluateAggregateFunction(EvaluationContext.EMPTY, Collections.singletonList("KeyValue"), function, TupleRange.ALL, IsolationLevel.SERIALIZABLE)
         .thenApply(tuple -> tuple.getLong(0));
     }).join();
 
