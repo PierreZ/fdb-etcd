@@ -13,7 +13,7 @@ public class FoundationDBContainer extends GenericContainer<FoundationDBContaine
   public static final int FDB_PORT = 4500;
   private static final String FDB_VERSION = "6.2.19";
   private static final String FDB_IMAGE = "foundationdb/foundationdb";
-  private static Logger log = LoggerFactory.getLogger(FoundationDBContainer.class);
+  private static final Logger log = LoggerFactory.getLogger(FoundationDBContainer.class);
   private File clusterFile;
 
   public FoundationDBContainer() {

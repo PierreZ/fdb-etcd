@@ -17,7 +17,7 @@ import mvccpb.EtcdIoKvProto;
 
 public class KVService extends KVGrpc.KVVertxImplBase {
 
-  private EtcdRecordStore recordStore;
+  private final EtcdRecordStore recordStore;
 
   public KVService(EtcdRecordStore recordStore) {
     this.recordStore = recordStore;

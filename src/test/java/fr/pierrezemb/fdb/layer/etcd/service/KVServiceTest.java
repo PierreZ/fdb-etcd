@@ -51,10 +51,9 @@ public class KVServiceTest {
   private static final ByteSequence SAMPLE_KEY_2 = ByteSequence.from("sample_key2".getBytes());
   private static final ByteSequence SAMPLE_VALUE_2 = ByteSequence.from("sample_value2".getBytes());
   private static final ByteSequence SAMPLE_KEY_3 = ByteSequence.from("sample_key3".getBytes());
-
+  private final FoundationDBContainer container = new FoundationDBContainer();
   private KV kvClient;
   private Client client;
-  private FoundationDBContainer container = new FoundationDBContainer();
   private File clusterFile;
 
   @BeforeAll
