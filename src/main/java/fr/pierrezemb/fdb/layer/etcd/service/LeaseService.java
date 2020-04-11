@@ -60,6 +60,7 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
   @Override
   public void leaseRevoke(EtcdIoRpcProto.LeaseRevokeRequest request, StreamObserver<EtcdIoRpcProto.LeaseRevokeResponse> responseObserver) {
     recordService.lease.delete(request.getID());
+    recordService.kv.delete(request.getID());
     responseObserver.onNext(EtcdIoRpcProto.LeaseRevokeResponse.newBuilder().build());
     responseObserver.onCompleted();
   }

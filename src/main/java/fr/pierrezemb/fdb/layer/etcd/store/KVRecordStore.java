@@ -274,4 +274,30 @@ public class KVRecordStore {
 
     return stat;
   }
+
+  public void delete(long leaseID) {
+    log.info("deleting all records with lease '{}'", leaseID);
+    Integer count = this.recordLayer.db.run(context -> {
+      FDBRecordStore recordStore = recordLayer.recordStoreProvider.apply(context);
+
+      RecordQuery query = RecordQuery.newBuilder()
+        .setRecordType("KeyValue")
+        .setFilter(Query.field("lease").equalsValue(leaseID)).build();
+
+      return recordLayer.recordStoreProvider
+        .apply(context)
+        // this returns an asynchronous cursor over the results of our query
+        .executeQuery(query)
+        .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
+          .mergeFrom(queriedRecord.getRecord()).build())
+        .map(r -> {
+          log.trace("found a record to delete for lease {}: {}", r, leaseID);
+          return r;
+        })
+        .map(record -> recordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion())))
+        .getCount()
+        .join();
+    });
+    log.trace("deleted {} records with lease {}", count, leaseID);
+  }
 }
