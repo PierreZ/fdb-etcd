@@ -5,7 +5,6 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.KVGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordStore;
 import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Promise;
 import java.util.ArrayList;
@@ -15,12 +14,15 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import mvccpb.EtcdIoKvProto;
 
+/**
+ * KVService corresponds to the KV GRPC service
+ */
 public class KVService extends KVGrpc.KVVertxImplBase {
 
-  private final EtcdRecordStore recordStore;
+  private final RecordService recordService;
 
-  public KVService(EtcdRecordStore recordStore) {
-    this.recordStore = recordStore;
+  public KVService(RecordService recordService) {
+    this.recordService = recordService;
   }
 
   /**
@@ -37,7 +39,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
   public void put(EtcdIoRpcProto.PutRequest request, Promise<EtcdIoRpcProto.PutResponse> response) {
     EtcdRecord.KeyValue put;
     try {
-      put = this.recordStore.put(ProtoUtils.from(request));
+      put = this.recordService.kv.put(ProtoUtils.from(request));
     } catch (InvalidProtocolBufferException e) {
       response.fail(e);
       return;
@@ -74,10 +76,10 @@ public class KVService extends KVGrpc.KVVertxImplBase {
 
     if (request.getRangeEnd().isEmpty()) {
       // get
-      results.add(this.recordStore.get(request.getKey().toByteArray(), version));
+      results.add(this.recordService.kv.get(request.getKey().toByteArray(), version));
     } else {
       // scan
-      results = this.recordStore.scan(request.getKey().toByteArray(), request.getRangeEnd().toByteArray(), version);
+      results = this.recordService.kv.scan(request.getKey().toByteArray(), request.getRangeEnd().toByteArray(), version);
     }
 
     List<EtcdIoKvProto.KeyValue> kvs = results.stream()
@@ -134,7 +136,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void deleteRange(EtcdIoRpcProto.DeleteRangeRequest request, Promise<EtcdIoRpcProto.DeleteRangeResponse> response) {
-    Integer count = this.recordStore.delete(
+    Integer count = this.recordService.kv.delete(
       request.getKey().toByteArray(),
       request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray());
     response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
@@ -152,7 +154,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void compact(EtcdIoRpcProto.CompactionRequest request, Promise<EtcdIoRpcProto.CompactionResponse> response) {
-    this.recordStore.compact(request.getRevision());
+    this.recordService.kv.compact(request.getRevision());
     response.complete();
   }
 }

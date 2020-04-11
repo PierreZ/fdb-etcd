@@ -3,6 +3,7 @@ syntax = "proto3";
 package fr.pierrezemb.etcd.record.pb;
 option java_outer_classname = "EtcdRecord";
 
+// This is the main struct to store keys and values.
 message KeyValue {
   // key is the key in bytes. An empty key is not allowed.
   bytes key = 1;
@@ -22,7 +23,16 @@ message KeyValue {
   int64 lease = 6;
 }
 
+// this message represent a Lease
+message Lease {
+  // TTL is the advisory time-to-live in seconds. Expired lease will return -1.
+  int64 TTL = 1;
+  // ID is the requested ID for the lease. If ID is set to 0, the lessor chooses an ID.
+  int64 ID = 2;
+}
+
 message RecordTypeUnion {
   KeyValue _KeyValue = 1;
+  Lease _Lease = 2;
 }
 

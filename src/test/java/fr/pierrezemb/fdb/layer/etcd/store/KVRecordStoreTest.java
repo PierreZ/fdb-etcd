@@ -16,17 +16,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class EtcdRecordStoreTest {
+class KVRecordStoreTest {
 
   private final FoundationDBContainer container = new FoundationDBContainer();
-  private EtcdRecordStore recordStore;
+  private KVRecordStore recordStore;
   private File clusterFile;
 
   @BeforeAll
   void setUp() throws IOException {
     container.start();
     clusterFile = container.getClusterFile();
-    recordStore = new EtcdRecordStore(clusterFile.getPath());
+    EtcdRecordMeta etcdRecordMeta = new EtcdRecordMeta(clusterFile.getAbsolutePath());
+    recordStore = new KVRecordStore(etcdRecordMeta);
   }
 
   @Test

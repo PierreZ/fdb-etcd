@@ -774,6 +774,7 @@ message LeaseGrantRequest {
   int64 TTL = 1;
   // ID is the requested ID for the lease. If ID is set to 0, the lessor chooses an ID.
   int64 ID = 2;
+  // insertTime is the timestamp at which the Lease has been inserted
 }
 
 message LeaseGrantResponse {

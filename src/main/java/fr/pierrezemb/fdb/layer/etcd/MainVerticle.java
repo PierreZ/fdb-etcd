@@ -1,7 +1,9 @@
 package fr.pierrezemb.fdb.layer.etcd;
 
 import fr.pierrezemb.fdb.layer.etcd.service.KVService;
-import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordStore;
+import fr.pierrezemb.fdb.layer.etcd.service.LeaseService;
+import fr.pierrezemb.fdb.layer.etcd.service.RecordService;
+import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordMeta;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.grpc.VertxServer;
@@ -15,11 +17,14 @@ public class MainVerticle extends AbstractVerticle {
     String clusterFilePath = this.context.config().getString("fdb-cluster-file");
     System.out.println("connecting to fdb@" + clusterFilePath);
 
-    EtcdRecordStore recordStore = new EtcdRecordStore(clusterFilePath);
+    EtcdRecordMeta recordMeta = new EtcdRecordMeta(clusterFilePath);
+    RecordService recordService = new RecordService(recordMeta);
 
     VertxServer server = VertxServerBuilder
       .forAddress(vertx, "localhost", 8080)
-      .addService(new KVService(recordStore)).build();
+      .addService(new KVService(recordService))
+      .addService(new LeaseService(recordService))
+      .build();
 
     server.start(ar -> {
       if (ar.succeeded()) {
