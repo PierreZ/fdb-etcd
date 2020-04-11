@@ -5,11 +5,14 @@ import etcdserverpb.LeaseGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import io.grpc.stub.StreamObserver;
 import org.apache.commons.lang3.RandomUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * LeaseService corresponds to the Lease GRCP service
  */
 public class LeaseService extends LeaseGrpc.LeaseImplBase {
+  private static final Logger log = LoggerFactory.getLogger(LeaseService.class);
   private final RecordService recordService;
 
   public LeaseService(RecordService recordService) {
@@ -75,7 +78,31 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
    */
   @Override
   public StreamObserver<EtcdIoRpcProto.LeaseKeepAliveRequest> leaseKeepAlive(StreamObserver<EtcdIoRpcProto.LeaseKeepAliveResponse> responseObserver) {
-    return super.leaseKeepAlive(responseObserver);
+    return new StreamObserver<EtcdIoRpcProto.LeaseKeepAliveRequest>() {
+      @Override
+      public void onNext(EtcdIoRpcProto.LeaseKeepAliveRequest value) {
+        if (log.isTraceEnabled()) {
+          log.trace("receive a keepAlive for lease {}", value.getID());
+        }
+        EtcdRecord.Lease record = recordService.lease.keepAlive(value.getID());
+        if (log.isTraceEnabled()) {
+          log.trace("lease {} updated", value.getID());
+          responseObserver.onNext(EtcdIoRpcProto.LeaseKeepAliveResponse.newBuilder()
+            .setID(record.getID())
+            .setTTL(record.getTTL()).build());
+        }
+      }
+
+      @Override
+      public void onError(Throwable t) {
+        log.error(t.getLocalizedMessage());
+      }
+
+      @Override
+      public void onCompleted() {
+        responseObserver.onCompleted();
+      }
+    };
   }
 
   /**

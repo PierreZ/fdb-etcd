@@ -1,15 +1,20 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.google.common.base.Charsets;
 import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
 import fr.pierrezemb.fdb.layer.etcd.MainVerticle;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
+import io.etcd.jetcd.CloseableClient;
 import io.etcd.jetcd.KV;
 import io.etcd.jetcd.Lease;
+import io.etcd.jetcd.Observers;
+import io.etcd.jetcd.lease.LeaseKeepAliveResponse;
 import io.etcd.jetcd.options.PutOption;
+import io.grpc.stub.StreamObserver;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -17,6 +22,10 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -74,9 +83,41 @@ public class LeaseServiceTest {
   @Test
   public void testRevoke() throws Exception {
     long leaseID = leaseClient.grant(5).get().getID();
-    kvClient.put(KEY, VALUE, PutOption.newBuilder().withLeaseId(leaseID).build()).get();
-    assertEquals(kvClient.get(KEY).get().getCount(), 1);
+    kvClient.put(KEY_2, VALUE, PutOption.newBuilder().withLeaseId(leaseID).build()).get();
+    assertEquals(1, kvClient.get(KEY_2).get().getCount());
     leaseClient.revoke(leaseID).get();
-    assertEquals(kvClient.get(KEY).get().getCount(), 0);
+    assertEquals(0, kvClient.get(KEY_2).get().getCount());
+  }
+
+  @Test
+  public void testKeepAliveOnce() throws InterruptedException, ExecutionException {
+    long leaseID = leaseClient.grant(2).get().getID();
+    kvClient.put(KEY, VALUE, PutOption.newBuilder().withLeaseId(leaseID).build()).get();
+    assertEquals(1, kvClient.get(KEY).get().getCount());
+    LeaseKeepAliveResponse rp = leaseClient.keepAliveOnce(leaseID).get();
+    assertTrue(rp.getTTL() > 0);
+  }
+
+  @Test
+  public void testKeepAlive() throws ExecutionException, InterruptedException {
+    long leaseID = leaseClient.grant(2).get().getID();
+    kvClient.put(KEY, VALUE, PutOption.newBuilder().withLeaseId(leaseID).build()).get();
+    assertEquals(1, kvClient.get(KEY).get().getCount());
+
+    CountDownLatch latch = new CountDownLatch(1);
+    AtomicReference<LeaseKeepAliveResponse> responseRef = new AtomicReference<>();
+    StreamObserver<LeaseKeepAliveResponse> observer = Observers.observer(response -> {
+      responseRef.set(response);
+      latch.countDown();
+    });
+
+    try (CloseableClient c = leaseClient.keepAlive(leaseID, observer)) {
+      latch.await(5, TimeUnit.SECONDS);
+      LeaseKeepAliveResponse response = responseRef.get();
+      assertTrue(response.getTTL() > 0);
+    }
+
+    Thread.sleep(3000);
+    assertEquals(0, kvClient.get(KEY).get().getCount());
   }
 }
