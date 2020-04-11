@@ -13,6 +13,8 @@ import io.etcd.jetcd.KV;
 import io.etcd.jetcd.Lease;
 import io.etcd.jetcd.Observers;
 import io.etcd.jetcd.lease.LeaseKeepAliveResponse;
+import io.etcd.jetcd.lease.LeaseTimeToLiveResponse;
+import io.etcd.jetcd.options.LeaseOption;
 import io.etcd.jetcd.options.PutOption;
 import io.grpc.stub.StreamObserver;
 import io.vertx.core.DeploymentOptions;
@@ -22,6 +24,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -39,6 +42,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 public class LeaseServiceTest {
   private static final ByteSequence KEY = ByteSequence.from("foo", Charsets.UTF_8);
   private static final ByteSequence KEY_2 = ByteSequence.from("foo2", Charsets.UTF_8);
+  private static final ByteSequence KEY_3 = ByteSequence.from("foo3", Charsets.UTF_8);
   private static final ByteSequence VALUE = ByteSequence.from("bar", Charsets.UTF_8);
   private final FoundationDBContainer container = new FoundationDBContainer();
   private KV kvClient;
@@ -119,5 +123,29 @@ public class LeaseServiceTest {
 
     Thread.sleep(3000);
     assertEquals(0, kvClient.get(KEY).get().getCount());
+  }
+
+  @Test
+  public void testTimeToLive() throws ExecutionException, InterruptedException {
+    long ttl = 5;
+    long leaseID = leaseClient.grant(ttl).get().getID();
+    LeaseTimeToLiveResponse resp = leaseClient.timeToLive(leaseID, LeaseOption.DEFAULT).get();
+    assertTrue(resp.getGrantedTTL() > 0);
+    assertEquals(resp.getGrantedTTL(), ttl);
+  }
+
+  @Test
+  public void testTimeToLiveWithKeys() throws ExecutionException, InterruptedException {
+    long ttl = 5;
+    long leaseID = leaseClient.grant(ttl).get().getID();
+    PutOption putOption = PutOption.newBuilder().withLeaseId(leaseID).build();
+    kvClient.put(KEY_3, VALUE, putOption).get();
+
+    LeaseOption leaseOption = LeaseOption.newBuilder().withAttachedKeys().build();
+    LeaseTimeToLiveResponse resp = leaseClient.timeToLive(leaseID, leaseOption).get();
+    assertTrue(resp.getTTl() > 0);
+    assertTrue(resp.getGrantedTTL() > 0);
+    assertEquals(resp.getKeys().size(), 1);
+    assertEquals(resp.getKeys().get(0).toString(Charset.defaultCharset()), KEY_3.toString(Charset.defaultCharset()));
   }
 }

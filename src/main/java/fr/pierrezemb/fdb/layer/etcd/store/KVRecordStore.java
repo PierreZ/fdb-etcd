@@ -138,6 +138,18 @@ public class KVRecordStore {
 
   }
 
+  public List<EtcdRecord.KeyValue> getWithLease(long id) {
+    log.trace("retrieving record for revision {}", id);
+    return recordLayer.db.run(context -> {
+      RecordQuery query = RecordQuery.newBuilder()
+        .setRecordType("KeyValue")
+        .setFilter(
+          Query.field("lease").equalsValue(id)
+        ).build();
+      return runQuery(context, query);
+    });
+  }
+
   public EtcdRecord.KeyValue put(EtcdRecord.KeyValue record) {
     return this.recordLayer.db.run(context -> {
 
@@ -300,4 +312,5 @@ public class KVRecordStore {
     });
     log.trace("deleted {} records with lease {}", count, leaseID);
   }
+
 }

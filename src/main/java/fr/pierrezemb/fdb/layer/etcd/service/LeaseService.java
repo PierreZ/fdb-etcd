@@ -4,6 +4,8 @@ import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.LeaseGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import io.grpc.stub.StreamObserver;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.apache.commons.lang3.RandomUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -115,7 +117,15 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
    */
   @Override
   public void leaseTimeToLive(EtcdIoRpcProto.LeaseTimeToLiveRequest request, StreamObserver<EtcdIoRpcProto.LeaseTimeToLiveResponse> responseObserver) {
-    super.leaseTimeToLive(request, responseObserver);
+    EtcdRecord.Lease lease = recordService.lease.get(request.getID());
+    List<EtcdRecord.KeyValue> records = recordService.kv.getWithLease(request.getID());
+    responseObserver.onNext(EtcdIoRpcProto.LeaseTimeToLiveResponse.newBuilder()
+      .setID(request.getID())
+      .setTTL(lease.getTTL())
+      .addAllKeys(records.stream().map(EtcdRecord.KeyValue::getKey).collect(Collectors.toList()))
+      .setGrantedTTL(lease.getTTL())
+      .build());
+    responseObserver.onCompleted();
   }
 
   /**

@@ -46,4 +46,16 @@ public class LeaseRecordStore {
       return lease;
     });
   }
+
+  public EtcdRecord.Lease get(long id) {
+    return recordLayer.db.run(context -> {
+      FDBStoredRecord<Message> record = recordLayer.recordStoreProvider.apply(context).loadRecord(Tuple.from(id));
+      if (record == null) {
+        log.warn("lease {} cannot be found, exiting keepAlive", id);
+        return null;
+      }
+      return EtcdRecord.Lease.newBuilder().mergeFrom(record.getRecord()).build();
+    });
+  }
 }
+
