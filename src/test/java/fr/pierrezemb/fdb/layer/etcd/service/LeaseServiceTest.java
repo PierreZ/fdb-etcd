@@ -60,12 +60,23 @@ public class LeaseServiceTest {
 
   @Test
   public void testGrant() throws Exception {
+    // ttl is 5s
     long leaseID = leaseClient.grant(5).get().getID();
 
     kvClient.put(KEY, VALUE, PutOption.newBuilder().withLeaseId(leaseID).build()).get();
     assertEquals(kvClient.get(KEY).get().getCount(), 1);
 
+    // let's wait 6s
     Thread.sleep(6000);
+    assertEquals(kvClient.get(KEY).get().getCount(), 0);
+  }
+
+  @Test
+  public void testRevoke() throws Exception {
+    long leaseID = leaseClient.grant(5).get().getID();
+    kvClient.put(KEY, VALUE, PutOption.newBuilder().withLeaseId(leaseID).build()).get();
+    assertEquals(kvClient.get(KEY).get().getCount(), 1);
+    leaseClient.revoke(leaseID).get();
     assertEquals(kvClient.get(KEY).get().getCount(), 0);
   }
 }
