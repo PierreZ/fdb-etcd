@@ -38,6 +38,16 @@ public class KVService extends KVGrpc.KVVertxImplBase {
   @Override
   public void put(EtcdIoRpcProto.PutRequest request, Promise<EtcdIoRpcProto.PutResponse> response) {
     EtcdRecord.KeyValue put;
+
+    if (request.getLease() > 0) {
+      EtcdRecord.Lease lease = this.recordService.lease.get(request.getLease());
+      if (null == lease) {
+        response.fail("d,sqldq");
+        // response.fail(new RuntimeException("etcdserver: requested lease not found"));
+        return;
+      }
+    }
+
     try {
       put = this.recordService.kv.put(ProtoUtils.from(request));
     } catch (InvalidProtocolBufferException e) {
