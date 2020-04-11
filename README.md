@@ -14,6 +14,7 @@ An experiment to provide ETCD layer on top of FoundationDB, built with [Record-L
     * scan,
     * delete,
     * compact,
+    * leases,
 * ETCD MVCC simulated using FDB's read version
 
 For TODO's, please have a look to the [Github issues](https://github.com/pierrez/fdb-etcd/issues).
