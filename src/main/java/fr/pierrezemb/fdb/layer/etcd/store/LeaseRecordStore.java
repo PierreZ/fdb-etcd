@@ -1,5 +1,6 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
+import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,7 +12,9 @@ public class LeaseRecordStore {
     this.recordLayer = recordLayer;
   }
 
-  public void putLease(long id, long ttl, long currentTimeMillis) {
-
+  public void put(EtcdRecord.Lease lease) {
+    log.debug("putting lease {}", lease.toString());
+    recordLayer.db.run(fdbRecordContext ->
+      this.recordLayer.recordStoreProvider.apply(fdbRecordContext).saveRecord(lease));
   }
 }

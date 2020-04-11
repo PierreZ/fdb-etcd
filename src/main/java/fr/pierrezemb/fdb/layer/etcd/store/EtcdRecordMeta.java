@@ -99,6 +99,5 @@ public class EtcdRecordMeta {
 
     // add a global index that will count all records and updates
     metadataBuilder.addUniversalIndex(COUNT_INDEX);
-
   }
 }

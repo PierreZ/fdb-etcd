@@ -18,7 +18,6 @@ import io.vertx.junit5.VertxTestContext;
 import java.io.File;
 import java.io.IOException;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,7 +59,6 @@ public class LeaseServiceTest {
   }
 
   @Test
-  @Disabled("No lease for now")
   public void testGrant() throws Exception {
     long leaseID = leaseClient.grant(5).get().getID();
 
@@ -68,6 +66,6 @@ public class LeaseServiceTest {
     assertEquals(kvClient.get(KEY).get().getCount(), 1);
 
     Thread.sleep(6000);
-    assertEquals(kvClient.get(KEY).get().getCount(), 1);
+    assertEquals(kvClient.get(KEY).get().getCount(), 0);
   }
 }

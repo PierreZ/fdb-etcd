@@ -2,7 +2,9 @@ package fr.pierrezemb.fdb.layer.etcd.service;
 
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.LeaseGrpc;
+import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import io.grpc.stub.StreamObserver;
+import org.apache.commons.lang3.RandomUtils;
 
 /**
  * LeaseService corresponds to the Lease GRCP service
@@ -26,7 +28,25 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
    */
   @Override
   public void leaseGrant(EtcdIoRpcProto.LeaseGrantRequest request, StreamObserver<EtcdIoRpcProto.LeaseGrantResponse> responseObserver) {
-    recordService.lease.putLease(request.getID(), request.getTTL(), System.currentTimeMillis());
+    long id = request.getID();
+    if (id == 0) {
+      id = RandomUtils.nextLong();
+    }
+
+    EtcdRecord.Lease lease = EtcdRecord.Lease.newBuilder()
+      .setTTL(request.getTTL())
+      .setID(id)
+      .setInsertTimestamp(System.currentTimeMillis())
+      .build();
+
+    recordService.lease.put(lease);
+    responseObserver
+      .onNext(EtcdIoRpcProto
+        .LeaseGrantResponse.newBuilder()
+        .setID(lease.getID())
+        .setTTL(lease.getTTL())
+        .build());
+    responseObserver.onCompleted();
   }
 
   /**

@@ -13,9 +13,11 @@ import com.apple.foundationdb.record.metadata.IndexAggregateFunction;
 import com.apple.foundationdb.record.metadata.Key;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStore;
+import com.apple.foundationdb.record.provider.foundationdb.FDBStoredRecord;
 import com.apple.foundationdb.record.query.RecordQuery;
 import com.apple.foundationdb.record.query.expressions.Query;
 import com.apple.foundationdb.tuple.Tuple;
+import com.google.protobuf.Message;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import java.util.Arrays;
 import java.util.Collections;
@@ -74,6 +76,8 @@ public class KVRecordStore {
   }
 
   private List<EtcdRecord.KeyValue> runQuery(FDBRecordContext context, RecordQuery query) {
+
+    long now = System.currentTimeMillis();
     // this returns an asynchronous cursor over the results of our query
     return recordLayer.recordStoreProvider
       .apply(context)
@@ -81,7 +85,31 @@ public class KVRecordStore {
       .executeQuery(query)
       .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
         .mergeFrom(queriedRecord.getRecord()).build())
-      .asList().join();
+      // filter according to the lease
+      .filter(record -> {
+        if (record.getLease() == 0) {
+          // no lease
+          return true;
+        }
+        // the record has a lease, retrieve it
+        FDBStoredRecord<Message> leaseMsg = this.recordLayer.recordStoreProvider
+          .apply(context)
+          .loadRecord(Tuple.from(record.getLease()));
+        if (leaseMsg == null) {
+          log.debug("record '{}' has a lease '{}' that can not be found, filtering",
+            record.getKey().toStringUtf8(), record.getLease());
+          return false;
+        }
+        EtcdRecord.Lease lease = EtcdRecord.Lease.newBuilder().mergeFrom(leaseMsg.getRecord()).build();
+        if (now > lease.getInsertTimestamp() + lease.getTTL() * 1000) {
+          log.debug("record '{}' has a lease '{}' that has expired, filtering",
+            record.getKey().toStringUtf8(), record.getLease());
+          return false;
+        }
+
+        return true;
+      }).asList().join();
+
   }
 
   public List<EtcdRecord.KeyValue> scan(byte[] start, byte[] end) {
