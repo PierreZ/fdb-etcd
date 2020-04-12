@@ -46,6 +46,29 @@ To run your application:
 ./gradlew clean run
 ```
 
+## Test it
+
+```bash
+# deploy your fdb cluster, or use docker
+docker run -d --name fdb -p 4500:4500 foundationdb/foundationdb:6.2.19
+# init fdb
+docker exec fdb fdbcli --exec "configure new single memory"
+# wait until it is ready
+docker exec fdb fdbcli --exec "status"
+
+# generate cluster file
+echo "docker:docker@127.0.0.1:4500" > fdb.cluster
+
+# retrieve latest version
+wget https://github.com/PierreZ/fdb-etcd/releases/download/v0.0.1/fdb-etcd-v0.0.1-SNAPSHOT-fat.jar
+
+# retrieve config file example, don't forget to edit it if necessary
+wget https://raw.githubusercontent.com/PierreZ/fdb-etcd/master/config.json
+
+# run fat jar
+java -jar fdb-etcd-v0.0.1-SNAPSHOT-fat.jar -conf ./config.json
+```
+
 ## Contributing
 
 Pull requests are very welcome. I will try to keep as [Github issues](https://github.com/pierrez/fdb-etcd/issues) what needs to be done if you want to jump in!

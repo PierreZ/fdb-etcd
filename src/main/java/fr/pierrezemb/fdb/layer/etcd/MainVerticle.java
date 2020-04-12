@@ -14,14 +14,16 @@ public class MainVerticle extends AbstractVerticle {
   @Override
   public void start(Promise<Void> startPromise) throws Exception {
 
-    String clusterFilePath = this.context.config().getString("fdb-cluster-file");
+    String clusterFilePath = this.context.config().getString("fdb-cluster-file", "`/var/fdb/fdb.cluster");
     System.out.println("connecting to fdb@" + clusterFilePath);
 
     EtcdRecordMeta recordMeta = new EtcdRecordMeta(clusterFilePath);
     RecordService recordService = new RecordService(recordMeta);
 
     VertxServer server = VertxServerBuilder
-      .forAddress(vertx, "localhost", 8080)
+      .forAddress(vertx,
+        this.context.config().getString("listen-address", "localhost"),
+        this.context.config().getInteger("listen-port", 8080))
       .addService(new KVService(recordService))
       .addService(new LeaseService(recordService))
       .build();
