@@ -59,6 +59,19 @@ public class FoundationDBContainer extends GenericContainer<FoundationDBContaine
     }
   }
 
+  /**
+   * A hook that is executed after the container is stopped with {@link #stop()}.
+   * Warning! This hook won't be executed if the container is terminated during
+   * the JVM's shutdown hook or by Ryuk.
+   *
+   * @param containerInfo
+   */
+  @Override
+  protected void containerIsStopped(InspectContainerResponse containerInfo) {
+    super.containerIsStopped(containerInfo);
+    clusterFile.delete();
+  }
+
   public File getClusterFile() {
     return clusterFile;
   }
