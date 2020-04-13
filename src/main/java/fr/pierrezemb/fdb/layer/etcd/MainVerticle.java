@@ -1,5 +1,6 @@
 package fr.pierrezemb.fdb.layer.etcd;
 
+import fr.pierrezemb.fdb.layer.etcd.service.AuthService;
 import fr.pierrezemb.fdb.layer.etcd.service.KVService;
 import fr.pierrezemb.fdb.layer.etcd.service.LeaseService;
 import fr.pierrezemb.fdb.layer.etcd.service.RecordService;
@@ -26,6 +27,7 @@ public class MainVerticle extends AbstractVerticle {
         this.context.config().getInteger("listen-port", 8080))
       .addService(new KVService(recordService))
       .addService(new LeaseService(recordService))
+      .addService(new AuthService(recordService))
       .build();
 
     server.start(ar -> {
