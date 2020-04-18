@@ -1,8 +1,9 @@
-package fr.pierrezemb.fdb.layer.etcd.service;
+package fr.pierrezemb.fdb.layer.etcd.grpc;
 
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.LeaseGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
+import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
 import io.grpc.stub.StreamObserver;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -15,10 +16,10 @@ import org.slf4j.LoggerFactory;
  */
 public class LeaseService extends LeaseGrpc.LeaseImplBase {
   private static final Logger log = LoggerFactory.getLogger(LeaseService.class);
-  private final RecordService recordService;
+  private final RecordServiceBuilder recordServiceBuilder;
 
-  public LeaseService(RecordService recordService) {
-    this.recordService = recordService;
+  public LeaseService(RecordServiceBuilder recordServiceBuilder) {
+    this.recordServiceBuilder = recordServiceBuilder;
   }
 
   /**
@@ -38,13 +39,18 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
       id = RandomUtils.nextLong();
     }
 
+    String tenantId = GrpcContextKeys.TENANT_ID_KEY.get();
+    if (tenantId == null) {
+      throw new RuntimeException("Auth enabled and tenant not found.");
+    }
+
     EtcdRecord.Lease lease = EtcdRecord.Lease.newBuilder()
       .setTTL(request.getTTL())
       .setID(id)
       .setInsertTimestamp(System.currentTimeMillis())
       .build();
 
-    recordService.lease.put(lease);
+    recordServiceBuilder.withTenant(tenantId).lease.put(lease);
     responseObserver
       .onNext(EtcdIoRpcProto
         .LeaseGrantResponse.newBuilder()
@@ -64,8 +70,12 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
    */
   @Override
   public void leaseRevoke(EtcdIoRpcProto.LeaseRevokeRequest request, StreamObserver<EtcdIoRpcProto.LeaseRevokeResponse> responseObserver) {
-    recordService.lease.delete(request.getID());
-    recordService.kv.delete(request.getID());
+    String tenantId = GrpcContextKeys.TENANT_ID_KEY.get();
+    if (tenantId == null) {
+      throw new RuntimeException("Auth enabled and tenant not found.");
+    }
+    recordServiceBuilder.withTenant(tenantId).lease.delete(request.getID());
+    recordServiceBuilder.withTenant(tenantId).kv.delete(request.getID());
     responseObserver.onNext(EtcdIoRpcProto.LeaseRevokeResponse.newBuilder().build());
     responseObserver.onCompleted();
   }
@@ -83,10 +93,14 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
     return new StreamObserver<EtcdIoRpcProto.LeaseKeepAliveRequest>() {
       @Override
       public void onNext(EtcdIoRpcProto.LeaseKeepAliveRequest value) {
+        String tenantId = GrpcContextKeys.TENANT_ID_KEY.get();
+        if (tenantId == null) {
+          throw new RuntimeException("Auth enabled and tenant not found.");
+        }
         if (log.isTraceEnabled()) {
           log.trace("receive a keepAlive for lease {}", value.getID());
         }
-        EtcdRecord.Lease record = recordService.lease.keepAlive(value.getID());
+        EtcdRecord.Lease record = recordServiceBuilder.withTenant(tenantId).lease.keepAlive(value.getID());
         if (log.isTraceEnabled()) {
           log.trace("lease {} updated", value.getID());
           responseObserver.onNext(EtcdIoRpcProto.LeaseKeepAliveResponse.newBuilder()
@@ -117,8 +131,12 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
    */
   @Override
   public void leaseTimeToLive(EtcdIoRpcProto.LeaseTimeToLiveRequest request, StreamObserver<EtcdIoRpcProto.LeaseTimeToLiveResponse> responseObserver) {
-    EtcdRecord.Lease lease = recordService.lease.get(request.getID());
-    List<EtcdRecord.KeyValue> records = recordService.kv.getWithLease(request.getID());
+    String tenantId = GrpcContextKeys.TENANT_ID_KEY.get();
+    if (tenantId == null) {
+      throw new RuntimeException("Auth enabled and tenant not found.");
+    }
+    EtcdRecord.Lease lease = recordServiceBuilder.withTenant(tenantId).lease.get(request.getID());
+    List<EtcdRecord.KeyValue> records = recordServiceBuilder.withTenant(tenantId).kv.getWithLease(request.getID());
     responseObserver.onNext(EtcdIoRpcProto.LeaseTimeToLiveResponse.newBuilder()
       .setID(request.getID())
       .setTTL(lease.getTTL())

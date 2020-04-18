@@ -1,4 +1,4 @@
-package fr.pierrezemb.fdb.layer.etcd.service;
+package fr.pierrezemb.fdb.layer.etcd.grpc;
 
 import etcdserverpb.AuthGrpc;
 import etcdserverpb.EtcdIoRpcProto;

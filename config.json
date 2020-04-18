@@ -1,5 +1,5 @@
 {
-	"fdb-cluster-file": "./fdb.cluster",
-	"listen-address": "0.0.0.0",
-	"listen-port": 8080
+  "fdb-cluster-file": "./fdb.cluster",
+  "listen-address": "0.0.0.0",
+  "listen-port": 8080
 }

@@ -8,7 +8,6 @@ import com.apple.foundationdb.record.metadata.Key;
 import com.apple.foundationdb.record.metadata.expressions.EmptyKeyExpression;
 import com.apple.foundationdb.record.metadata.expressions.GroupingKeyExpression;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
-import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStore;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.DirectoryLayerDirectory;
@@ -38,28 +37,23 @@ public class EtcdRecordMeta {
   private static final Logger log = LoggerFactory.getLogger(EtcdRecordMeta.class);
   public final FDBDatabase db;
   public final Function<FDBRecordContext, FDBRecordStore> recordStoreProvider;
-  private final KeySpace keySpace;
+  // In this case, the key space implies that there are multiple "applications"
+  // that might be defined to run on the same FoundationDB cluster, and then
+  // each "application" might have multiple "environments". This could be used,
+  // for example, to connect to either the "prod" or "qa" environment for the same
+  // application from within the same code base.
+  private final KeySpace keySpace = new KeySpace(
+    new DirectoryLayerDirectory("application")
+      .addSubdirectory(new KeySpaceDirectory("tenant", KeySpaceDirectory.KeyType.STRING))
+  );
   private final KeySpacePath path;
 
-  public EtcdRecordMeta(String clusterFilePath) {
+  public EtcdRecordMeta(FDBDatabase db, String tenant) {
+    this.db = db;
 
-    log.info("creating FDB Record store using cluster file @" + clusterFilePath);
-
-    // get DB
-    db = FDBDatabaseFactory.instance().getDatabase(clusterFilePath);
-
-    // In this case, the key space implies that there are multiple "applications"
-    // that might be defined to run on the same FoundationDB cluster, and then
-    // each "application" might have multiple "environments". This could be used,
-    // for example, to connect to either the "prod" or "qa" environment for the same
-    // application from within the same code base.
-    keySpace = new KeySpace(
-      new DirectoryLayerDirectory("application")
-        .addSubdirectory(new KeySpaceDirectory("user", KeySpaceDirectory.KeyType.STRING))
-    );
 
     // Create a path for the "etcd-store" application's and "user1" user
-    path = keySpace.path("application", "etcd-store").add("user", "user1");
+    path = keySpace.path("application", "etcd-store").add("tenant", tenant);
 
     RecordMetaDataBuilder metadataBuilder = RecordMetaData.newBuilder()
       .setRecords(EtcdRecord.getDescriptor());

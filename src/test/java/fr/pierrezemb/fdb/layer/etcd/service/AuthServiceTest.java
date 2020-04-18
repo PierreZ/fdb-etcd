@@ -1,12 +1,15 @@
-package fr.pierrezemb.fdb.layer.etcd;
+package fr.pierrezemb.fdb.layer.etcd.service;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 
+import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
+import fr.pierrezemb.fdb.layer.etcd.MainVerticle;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
 import io.etcd.jetcd.KV;
+import io.etcd.jetcd.kv.GetResponse;
 import io.etcd.jetcd.kv.PutResponse;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Vertx;
@@ -23,7 +26,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class AuthClientTest {
+public class AuthServiceTest {
 
   private static final ByteSequence SAMPLE_KEY = ByteSequence.from("sample_key".getBytes());
   private static final ByteSequence SAMPLE_VALUE = ByteSequence.from("sample_value".getBytes());
@@ -41,7 +44,9 @@ public class AuthClientTest {
     clusterFile = container.getClusterFile();
 
     DeploymentOptions options = new DeploymentOptions()
-      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFile.getAbsolutePath())
+      .setConfig(new JsonObject()
+        .put("fdb-cluster-file", clusterFile.getAbsolutePath())
+        .put("auth-enabled", true)
       );
 
     // deploy verticle
@@ -49,7 +54,7 @@ public class AuthClientTest {
   }
 
   @Test
-  public void testAuth() throws Exception {
+  public void basicTestAuth() throws Exception {
     final Client rootClient = Client.builder()
       .endpoints("http://localhost:8080")
       .user(ByteSequence.from("root".getBytes()))
@@ -60,5 +65,15 @@ public class AuthClientTest {
     PutResponse response = feature.get();
     assertNotNull(response.getHeader());
     assertFalse(response.hasPrevKv());
+
+    final Client anotherUserClient = Client.builder()
+      .endpoints("http://localhost:8080")
+      .user(ByteSequence.from("pierre".getBytes()))
+      .password(ByteSequence.from("whatever".getBytes())).build();
+
+    kvClient = anotherUserClient.getKVClient();
+    GetResponse getResponse = kvClient.get(SAMPLE_KEY).get();
+    assertNotNull(response.getHeader());
+    assertEquals(0, getResponse.getCount());
   }
 }

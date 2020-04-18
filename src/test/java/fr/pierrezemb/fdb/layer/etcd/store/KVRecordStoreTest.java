@@ -4,10 +4,11 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
+import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
+import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.google.protobuf.ByteString;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
-import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import org.junit.jupiter.api.AfterAll;
@@ -20,13 +21,12 @@ class KVRecordStoreTest {
 
   private final FoundationDBContainer container = new FoundationDBContainer();
   private KVRecordStore recordStore;
-  private File clusterFile;
 
   @BeforeAll
   void setUp() throws IOException {
     container.start();
-    clusterFile = container.getClusterFile();
-    EtcdRecordMeta etcdRecordMeta = new EtcdRecordMeta(clusterFile.getAbsolutePath());
+    FDBDatabase db = FDBDatabaseFactory.instance().getDatabase(container.getClusterFile().getAbsolutePath());
+    EtcdRecordMeta etcdRecordMeta = new EtcdRecordMeta(db, "testTenant");
     recordStore = new KVRecordStore(etcdRecordMeta);
   }
 
@@ -74,6 +74,5 @@ class KVRecordStoreTest {
   @AfterAll
   void tearsDown() {
     container.stop();
-    clusterFile.delete();
   }
 }
