@@ -16,6 +16,7 @@ An experiment to provide ETCD layer on top of FoundationDB, built with [Record-L
     * compact,
     * leases,
 * ETCD MVCC simulated using FDB's read version
+* multi-tenancy (soon back by the AuthService)
 
 For TODO's, please have a look to the [Github issues](https://github.com/pierrez/fdb-etcd/issues).
 

@@ -1,10 +1,10 @@
-package fr.pierrezemb.fdb.layer.etcd.service;
-
+package fr.pierrezemb.fdb.layer.etcd.grpc;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.KVGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
+import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
 import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Promise;
 import java.util.ArrayList;
@@ -19,10 +19,10 @@ import mvccpb.EtcdIoKvProto;
  */
 public class KVService extends KVGrpc.KVVertxImplBase {
 
-  private final RecordService recordService;
+  private final RecordServiceBuilder recordServiceBuilder;
 
-  public KVService(RecordService recordService) {
-    this.recordService = recordService;
+  public KVService(RecordServiceBuilder recordServiceBuilder) {
+    this.recordServiceBuilder = recordServiceBuilder;
   }
 
   /**
@@ -39,17 +39,21 @@ public class KVService extends KVGrpc.KVVertxImplBase {
   public void put(EtcdIoRpcProto.PutRequest request, Promise<EtcdIoRpcProto.PutResponse> response) {
     EtcdRecord.KeyValue put;
 
+    String tenantId = GrpcContextKeys.TENANT_ID_KEY.get();
+    if (tenantId == null) {
+      throw new RuntimeException("Auth enabled and tenant not found.");
+    }
+
     if (request.getLease() > 0) {
-      EtcdRecord.Lease lease = this.recordService.lease.get(request.getLease());
+      EtcdRecord.Lease lease = this.recordServiceBuilder.withTenant(tenantId).lease.get(request.getLease());
       if (null == lease) {
-        response.fail("d,sqldq");
-        // response.fail(new RuntimeException("etcdserver: requested lease not found"));
+        response.fail(new RuntimeException("etcdserver: requested lease not found"));
         return;
       }
     }
 
     try {
-      put = this.recordService.kv.put(ProtoUtils.from(request));
+      put = this.recordServiceBuilder.withTenant(tenantId).kv.put(ProtoUtils.from(request));
     } catch (InvalidProtocolBufferException e) {
       response.fail(e);
       return;
@@ -80,16 +84,24 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void range(EtcdIoRpcProto.RangeRequest request, Promise<EtcdIoRpcProto.RangeResponse> response) {
+    String tenantId = GrpcContextKeys.TENANT_ID_KEY.get();
+    if (tenantId == null) {
+      throw new RuntimeException("Auth enabled and tenant not found.");
+    }
 
     List<EtcdRecord.KeyValue> results = new ArrayList<>();
     int version = Math.toIntExact(request.getRevision());
 
     if (request.getRangeEnd().isEmpty()) {
       // get
-      results.add(this.recordService.kv.get(request.getKey().toByteArray(), version));
+      results.add(this.recordServiceBuilder
+        .withTenant(tenantId)
+        .kv.get(request.getKey().toByteArray(), version));
     } else {
       // scan
-      results = this.recordService.kv.scan(request.getKey().toByteArray(), request.getRangeEnd().toByteArray(), version);
+      results = this.recordServiceBuilder
+        .withTenant(tenantId)
+        .kv.scan(request.getKey().toByteArray(), request.getRangeEnd().toByteArray(), version);
     }
 
     List<EtcdIoKvProto.KeyValue> kvs = results.stream()
@@ -146,7 +158,11 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void deleteRange(EtcdIoRpcProto.DeleteRangeRequest request, Promise<EtcdIoRpcProto.DeleteRangeResponse> response) {
-    Integer count = this.recordService.kv.delete(
+    String tenantId = GrpcContextKeys.TENANT_ID_KEY.get();
+    if (tenantId == null) {
+      throw new RuntimeException("Tenant id not found.");
+    }
+    Integer count = this.recordServiceBuilder.withTenant(tenantId).kv.delete(
       request.getKey().toByteArray(),
       request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray());
     response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
@@ -164,7 +180,11 @@ public class KVService extends KVGrpc.KVVertxImplBase {
    */
   @Override
   public void compact(EtcdIoRpcProto.CompactionRequest request, Promise<EtcdIoRpcProto.CompactionResponse> response) {
-    this.recordService.kv.compact(request.getRevision());
+    String tenantId = GrpcContextKeys.TENANT_ID_KEY.get();
+    if (tenantId == null) {
+      throw new RuntimeException("Auth enabled and tenant not found.");
+    }
+    this.recordServiceBuilder.withTenant(tenantId).kv.compact(request.getRevision());
     response.complete();
   }
 }
