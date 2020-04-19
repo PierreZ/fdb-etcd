@@ -60,6 +60,7 @@ public class EtcdRecordMeta {
 
     setupKeyValue(metadataBuilder);
     setupLease(metadataBuilder);
+    setupAuth(metadataBuilder);
 
     // record-layer has the capacity to set versions on each records.
     // see https://github.com/FoundationDB/fdb-record-layer/blob/master/docs/Overview.md#indexing-by-version
@@ -70,6 +71,11 @@ public class EtcdRecordMeta {
       .setContext(context)
       .setKeySpacePath(path)
       .createOrOpen();
+  }
+
+  private void setupAuth(RecordMetaDataBuilder metadataBuilder) {
+    metadataBuilder.getRecordType("Role").setPrimaryKey(Key.Expressions.field("name"));
+    metadataBuilder.getRecordType("User").setPrimaryKey(Key.Expressions.field("name"));
   }
 
   private void setupLease(RecordMetaDataBuilder metadataBuilder) {

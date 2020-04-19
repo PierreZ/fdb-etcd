@@ -33,8 +33,43 @@ message Lease {
   int64 insert_timestamp = 3;
 }
 
+// Auth part
+// User is a single entry in the bucket authUsers
+message UserAddOptions {
+  bool no_password = 1;
+};
+
+message User {
+  bytes name = 1;
+  bytes password = 2;
+  repeated string roles = 3;
+  UserAddOptions options = 4;
+}
+
+// Permission is a single entity
+message Permission {
+  enum Type {
+    READ = 0;
+    WRITE = 1;
+    READWRITE = 2;
+  }
+  Type permType = 1;
+
+  bytes key = 2;
+  bytes range_end = 3;
+}
+
+// Role is a single entry in the bucket authRoles
+message Role {
+  bytes name = 1;
+
+  repeated Permission keyPermission = 2;
+}
+
 message RecordTypeUnion {
   KeyValue _KeyValue = 1;
   Lease _Lease = 2;
+  Role _Role = 3;
+  User _User = 5;
 }
 

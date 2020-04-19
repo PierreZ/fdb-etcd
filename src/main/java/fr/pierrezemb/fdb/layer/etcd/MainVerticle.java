@@ -29,7 +29,7 @@ public class MainVerticle extends AbstractVerticle {
       .intercept(new AuthInterceptor(authEnabled, defaultTenant))
       .addService(new KVService(recordServiceBuilder))
       .addService(new LeaseService(recordServiceBuilder))
-      .addService(new AuthService());
+      .addService(new AuthService(recordServiceBuilder));
 
     VertxServer server = serverBuilder.build();
 
