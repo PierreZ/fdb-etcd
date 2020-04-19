@@ -43,21 +43,11 @@ public class AuthServiceTest {
   private static final ByteSequence SAMPLE_VALUE_2 = ByteSequence.from("sample_value2".getBytes());
   private static final ByteSequence SAMPLE_KEY_3 = ByteSequence.from("sample_key3".getBytes());
 
-  private static Auth authDisabledAuthClient;
-  private static KV authDisabledKVClient;
-  private final ByteSequence rootRoleKey = bytesOf("root");
-  private final ByteSequence rootRoleValue = bytesOf("b");
-  private final ByteSequence rootRoleKeyRangeBegin = bytesOf("root");
-  private final ByteSequence rootRoleKeyRangeEnd = bytesOf("root1");
-  private final ByteSequence userRoleKey = bytesOf("foo");
-  private final ByteSequence userRoleValue = bytesOf("bar");
-  private final ByteSequence userRoleKeyRangeBegin = bytesOf("foo");
-  private final ByteSequence userRoleKeyRangeEnd = bytesOf("foo1");
+  private static Auth authRootClient;
+  private final ByteSequence userRoleKeyRangeBegin = bytesOf("my-tenant");
   private final String rootString = "root";
   private final ByteSequence root = bytesOf(rootString);
   private final ByteSequence rootPass = bytesOf("123");
-  private final String rootRoleString = "root";
-  private final ByteSequence rootRole = bytesOf(rootRoleString);
   private final String userString = "user";
   private final ByteSequence user = bytesOf(userString);
   private final ByteSequence userPass = bytesOf("userPass");
@@ -113,34 +103,26 @@ public class AuthServiceTest {
       .user(ByteSequence.from("root".getBytes()))
       .password(ByteSequence.from("roopasswd".getBytes())).build();
 
-    authDisabledKVClient = client.getKVClient();
-    authDisabledAuthClient = client.getAuthClient();
+    authRootClient = client.getAuthClient();
 
-    authDisabledAuthClient.roleAdd(rootRole).get();
-    authDisabledAuthClient.roleAdd(userRole).get();
+    authRootClient.roleAdd(userRole).get();
 
-    final AuthRoleListResponse response = authDisabledAuthClient.roleList().get();
-    assertEquals(response.getRoles().get(0), userRoleString);
+    final AuthRoleListResponse response = authRootClient.roleList().get();
+    assertEquals(1, response.getRoles().size());
 
-    authDisabledAuthClient
-      .roleGrantPermission(rootRole, rootRoleKeyRangeBegin, rootRoleKeyRangeEnd, Permission.Type.READWRITE).get();
-    authDisabledAuthClient.roleGrantPermission(userRole, userRoleKeyRangeBegin, userRoleKeyRangeEnd, Permission.Type.READWRITE).get();
+    authRootClient.roleGrantPermission(userRole, userRoleKeyRangeBegin, null, Permission.Type.READWRITE).get();
 
-    authDisabledAuthClient.userAdd(root, rootPass).get();
-    authDisabledAuthClient.userAdd(user, userPass).get();
+    authRootClient.userAdd(root, rootPass).get();
+    authRootClient.userAdd(user, userPass).get();
 
-    authDisabledAuthClient.userChangePassword(user, userNewPass).get();
+    authRootClient.userChangePassword(user, userNewPass).get();
 
-    List<String> users = authDisabledAuthClient.userList().get().getUsers();
+    List<String> users = authRootClient.userList().get().getUsers();
     assertTrue(users.contains(rootString));
     assertTrue(users.contains(userString));
 
-    authDisabledAuthClient.userGrantRole(root, rootRole).get();
-    authDisabledAuthClient.userGrantRole(user, rootRole).get();
-    authDisabledAuthClient.userGrantRole(user, userRole).get();
+    authRootClient.userGrantRole(user, userRole).get();
 
-    assertEquals(authDisabledAuthClient.userGet(root).get().getRoles().get(0), rootRoleString);
-    assertTrue(authDisabledAuthClient.userGet(root).get().getRoles().contains(rootRoleString));
-    assertTrue(authDisabledAuthClient.userGet(root).get().getRoles().contains(userRoleString));
+    assertTrue(authRootClient.userGet(root).get().getRoles().contains(userRoleString));
   }
 }

@@ -1,9 +1,11 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
 import com.apple.foundationdb.record.provider.foundationdb.FDBStoredRecord;
+import com.apple.foundationdb.record.query.RecordQuery;
 import com.apple.foundationdb.tuple.Tuple;
 import com.google.protobuf.Message;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,6 +35,19 @@ public class AuthRecordStore {
       }
 
       return EtcdRecord.Role.newBuilder().mergeFrom(message.getRecord()).build();
+    });
+  }
+
+  public List<EtcdRecord.Role> getRoles() {
+    return etcdRecordMeta.db.run(context -> {
+
+      return this.etcdRecordMeta.recordStoreProvider
+        .apply(context)
+        .executeQuery(RecordQuery.newBuilder().setRecordType("Role").build())
+        .map(queriedRecord -> EtcdRecord.Role.newBuilder()
+          .mergeFrom(queriedRecord.getRecord()).build())
+        .asList().join();
+
     });
   }
 }

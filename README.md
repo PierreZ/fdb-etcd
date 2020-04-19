@@ -20,6 +20,14 @@ An experiment to provide ETCD layer on top of FoundationDB, built with [Record-L
 
 For TODO's, please have a look to the [Github issues](https://github.com/pierrez/fdb-etcd/issues).
 
+## Authentication and multi-tenancy
+
+Compared to [ETCD's auth](https://github.com/etcd-io/etcd/blob/master/Documentation/op-guide/authentication.md), there is some differences when using fdb-etcd:
+
+* You cannot give root role
+* you cannot read data from root user
+* the role range key begin is used as the tenancy holder
+
 ## Building
 
 ### Requirements

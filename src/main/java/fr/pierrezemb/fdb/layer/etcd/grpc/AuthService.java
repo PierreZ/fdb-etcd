@@ -1,10 +1,13 @@
 package fr.pierrezemb.fdb.layer.etcd.grpc;
 
+import com.google.protobuf.ByteString;
 import etcdserverpb.AuthGrpc;
 import etcdserverpb.EtcdIoRpcProto;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
 import io.grpc.stub.StreamObserver;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,7 +99,15 @@ public class AuthService extends AuthGrpc.AuthImplBase {
    */
   @Override
   public void roleList(EtcdIoRpcProto.AuthRoleListRequest request, StreamObserver<EtcdIoRpcProto.AuthRoleListResponse> responseObserver) {
-    super.roleList(request, responseObserver);
+    String tenantId = GrpcContextKeys.TENANT_ID_KEY.get();
+    if (!tenantId.equals("root")) {
+      throw new RuntimeException("Only root user can create roles and user");
+    }
+    List<EtcdRecord.Role> roles = this.recordServiceBuilder.withTenant(tenantId).auth.getRoles();
+    responseObserver.onNext(EtcdIoRpcProto.AuthRoleListResponse
+      .newBuilder()
+      .addAllRoles(roles.stream().map(EtcdRecord.Role::getName).map(ByteString::toString).collect(Collectors.toList())).build());
+    responseObserver.onCompleted();
   }
 
   /**
