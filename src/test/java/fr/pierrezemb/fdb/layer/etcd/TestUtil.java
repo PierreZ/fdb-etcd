@@ -1,13 +1,14 @@
 package fr.pierrezemb.fdb.layer.etcd;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import com.google.common.base.Charsets;
 import com.google.protobuf.ByteString;
 import io.etcd.jetcd.ByteSequence;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.ServerSocket;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class TestUtil {
 

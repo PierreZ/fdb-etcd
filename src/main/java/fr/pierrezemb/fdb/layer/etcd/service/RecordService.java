@@ -1,9 +1,9 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
-import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordMeta;
-import fr.pierrezemb.fdb.layer.etcd.store.KVRecordStore;
-import fr.pierrezemb.fdb.layer.etcd.store.LeaseRecordStore;
-import fr.pierrezemb.fdb.layer.etcd.store.WatchRecordStore;
+import fr.pierrezemb.fdb.layer.etcd.recordlayer.EtcdRecordMetadata;
+import fr.pierrezemb.fdb.layer.etcd.recordlayer.KVRecordStore;
+import fr.pierrezemb.fdb.layer.etcd.recordlayer.LeaseRecordStore;
+import fr.pierrezemb.fdb.layer.etcd.recordlayer.WatchRecordStore;
 
 /**
  * RecordService is exposing all RecordStores in a easy way
@@ -13,7 +13,7 @@ public class RecordService {
   public final LeaseRecordStore lease;
   public final WatchRecordStore watch;
 
-  public RecordService(EtcdRecordMeta recordMeta) {
+  public RecordService(EtcdRecordMetadata recordMeta) {
     this.kv = new KVRecordStore(recordMeta);
     this.lease = new LeaseRecordStore(recordMeta);
     this.watch = new WatchRecordStore(recordMeta);

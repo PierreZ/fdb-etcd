@@ -1,8 +1,4 @@
-package fr.pierrezemb.fdb.layer.etcd.store;
-
-import static com.apple.foundationdb.record.TupleRange.ALL;
-import static fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordMeta.COUNT_INDEX;
-import static fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordMeta.INDEX_VERSION_PER_KEY;
+package fr.pierrezemb.fdb.layer.etcd.recordlayer;
 
 import com.apple.foundationdb.record.EvaluationContext;
 import com.apple.foundationdb.record.FunctionNames;
@@ -19,12 +15,18 @@ import com.apple.foundationdb.record.query.expressions.Query;
 import com.apple.foundationdb.tuple.Tuple;
 import com.google.protobuf.Message;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
+import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import static com.apple.foundationdb.record.TupleRange.ALL;
+import static fr.pierrezemb.fdb.layer.etcd.recordlayer.EtcdRecordMetadata.COUNT_INDEX;
+import static fr.pierrezemb.fdb.layer.etcd.recordlayer.EtcdRecordMetadata.INDEX_VERSION_PER_KEY;
 
 /**
  * KVRecordStore is handling all things related to the KVService on the record-layer
@@ -32,10 +34,10 @@ import org.slf4j.LoggerFactory;
 public class KVRecordStore {
   private static final Logger log = LoggerFactory.getLogger(KVRecordStore.class);
 
-  private final EtcdRecordMeta etcdRecordMeta;
+  private final EtcdRecordMetadata etcdRecordMetadata;
 
-  public KVRecordStore(EtcdRecordMeta etcdRecordMeta) {
-    this.etcdRecordMeta = etcdRecordMeta;
+  public KVRecordStore(EtcdRecordMetadata etcdRecordMetadata) {
+    this.etcdRecordMetadata = etcdRecordMetadata;
   }
 
   public EtcdRecord.KeyValue get(byte[] toByteArray) {
@@ -50,7 +52,7 @@ public class KVRecordStore {
    */
   public EtcdRecord.KeyValue get(byte[] key, long revision) {
     log.trace("retrieving record {} for revision {}", Arrays.toString(key), revision);
-    List<EtcdRecord.KeyValue> records = etcdRecordMeta.db.run(context -> {
+    List<EtcdRecord.KeyValue> records = etcdRecordMetadata.db.run(context -> {
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
         .setFilter(
@@ -79,7 +81,7 @@ public class KVRecordStore {
 
     long now = System.currentTimeMillis();
     // this returns an asynchronous cursor over the results of our query
-    return etcdRecordMeta.recordStoreProvider
+    return etcdRecordMetadata.recordStoreProvider
       .apply(context)
       // this returns an asynchronous cursor over the results of our query
       .executeQuery(query)
@@ -92,7 +94,7 @@ public class KVRecordStore {
           return true;
         }
         // the record has a lease, retrieve it
-        FDBStoredRecord<Message> leaseMsg = this.etcdRecordMeta.recordStoreProvider
+        FDBStoredRecord<Message> leaseMsg = this.etcdRecordMetadata.recordStoreProvider
           .apply(context)
           .loadRecord(Tuple.from(record.getLease()));
         if (leaseMsg == null) {
@@ -118,7 +120,7 @@ public class KVRecordStore {
 
   public List<EtcdRecord.KeyValue> scan(byte[] start, byte[] end, long revision) {
     log.trace("scanning between {} and {} with revision {}", start, end, revision);
-    return etcdRecordMeta.db.run(context -> {
+    return etcdRecordMetadata.db.run(context -> {
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
         .setFilter(
@@ -140,7 +142,7 @@ public class KVRecordStore {
 
   public List<EtcdRecord.KeyValue> getWithLease(long id) {
     log.trace("retrieving record for revision {}", id);
-    return etcdRecordMeta.db.run(context -> {
+    return etcdRecordMetadata.db.run(context -> {
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
         .setFilter(
@@ -149,14 +151,17 @@ public class KVRecordStore {
       return runQuery(context, query);
     });
   }
-
   public EtcdRecord.KeyValue put(EtcdRecord.KeyValue record) {
-    return this.etcdRecordMeta.db.run(context -> {
+    return put(record, null);
+  }
+
+  public EtcdRecord.KeyValue put(EtcdRecord.KeyValue record, Notifier notifier) {
+    return this.etcdRecordMetadata.db.run(context -> {
 
       // retrieve version using an index
       IndexAggregateFunction function = new IndexAggregateFunction(
         FunctionNames.MAX_EVER, INDEX_VERSION_PER_KEY.getRootExpression(), INDEX_VERSION_PER_KEY.getName());
-      Tuple maxResult = etcdRecordMeta.recordStoreProvider.apply(context)
+      Tuple maxResult = etcdRecordMetadata.recordStoreProvider.apply(context)
         .evaluateAggregateFunction(
           Collections.singletonList("KeyValue"), function,
           Key.Evaluated.concatenate(record.getKey().toByteArray()), IsolationLevel.SERIALIZABLE)
@@ -164,7 +169,7 @@ public class KVRecordStore {
 
       if (log.isTraceEnabled()) {
         // debug: let's scan and print the index to see how it is built:
-        etcdRecordMeta.recordStoreProvider.apply(context).scanIndex(
+        etcdRecordMetadata.recordStoreProvider.apply(context).scanIndex(
           INDEX_VERSION_PER_KEY,
           IndexScanType.BY_GROUP,
           ALL,
@@ -175,7 +180,6 @@ public class KVRecordStore {
         );
       }
 
-
       long version = null == maxResult ? 1 : maxResult.getLong(0) + 1;
 
       EtcdRecord.KeyValue fixedRecord = record.toBuilder()
@@ -185,17 +189,51 @@ public class KVRecordStore {
         .build();
 
       log.trace("putting record key '{}' in version {}", fixedRecord.getKey().toStringUtf8(), version);
-      FDBRecordStore recordStore = etcdRecordMeta.recordStoreProvider.apply(context);
+      FDBRecordStore recordStore = etcdRecordMetadata.recordStoreProvider.apply(context);
       recordStore.saveRecord(fixedRecord);
       log.trace("successfully put record {} in version {}", fixedRecord.toString(), fixedRecord.getVersion());
+
+      // checking if we have a Watch underneath
+      RecordQuery watchQuery = RecordQuery
+        .newBuilder()
+        .setRecordType("Watch")
+        .setFilter(
+          Query.or(
+            // watch a single key
+            Query.and(
+              Query.field("range_end").isNull(),
+              Query.field("key").equalsValue(fixedRecord.getKey().toByteArray())
+            ),
+              // watching over a range
+              Query.and(
+                Query.field("key").lessThanOrEquals(fixedRecord.getKey().toByteArray()),
+                Query.field("range_end").greaterThanOrEquals(fixedRecord.getKey().toByteArray())
+              )
+            )
+        ).build();
+
+      List<EtcdRecord.Watch> toto = recordStore.executeQuery(watchQuery)
+        .map(queriedRecord -> EtcdRecord.Watch.newBuilder()
+          .mergeFrom(queriedRecord.getRecord()).build())
+        .asList().join();
+
+      if (notifier != null && toto.size() > 0) {
+        toto.forEach(w -> {
+          log.debug("found a matching watch {}", w);
+          notifier.publish("tenant", w.getWatchId(), fixedRecord);
+        });
+      } else {
+        log.warn("found no matching watch");
+      }
+
       return fixedRecord;
     });
   }
 
   public Integer delete(byte[] start, byte[] end) {
-    Integer count = this.etcdRecordMeta.db.run(context -> {
+    Integer count = this.etcdRecordMetadata.db.run(context -> {
       log.trace("deleting between {} and {}", start, end);
-      FDBRecordStore recordStore = etcdRecordMeta.recordStoreProvider.apply(context);
+      FDBRecordStore recordStore = etcdRecordMetadata.recordStoreProvider.apply(context);
 
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
@@ -204,7 +242,7 @@ public class KVRecordStore {
           Query.field("key").lessThanOrEquals(end)
         )).build();
 
-      return etcdRecordMeta.recordStoreProvider
+      return etcdRecordMetadata.recordStoreProvider
         .apply(context)
         // this returns an asynchronous cursor over the results of our query
         .executeQuery(query)
@@ -223,15 +261,15 @@ public class KVRecordStore {
   }
 
   public void compact(long revision) {
-    Integer count = this.etcdRecordMeta.db.run(context -> {
+    Integer count = this.etcdRecordMetadata.db.run(context -> {
       log.warn("compacting any record before {}", revision);
-      FDBRecordStore recordStore = etcdRecordMeta.recordStoreProvider.apply(context);
+      FDBRecordStore recordStore = etcdRecordMetadata.recordStoreProvider.apply(context);
 
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
         .setFilter(Query.field("mod_revision").lessThanOrEquals(revision)).build();
 
-      return etcdRecordMeta.recordStoreProvider
+      return etcdRecordMetadata.recordStoreProvider
         .apply(context)
         // this returns an asynchronous cursor over the results of our query
         .executeQuery(query)
@@ -260,14 +298,14 @@ public class KVRecordStore {
    * @return
    */
   public long stats() {
-    Long stat = this.etcdRecordMeta.db.run(context -> {
+    Long stat = this.etcdRecordMetadata.db.run(context -> {
       IndexAggregateFunction function = new IndexAggregateFunction(
         FunctionNames.COUNT, COUNT_INDEX.getRootExpression(), COUNT_INDEX.getName());
-      FDBRecordStore recordStore = etcdRecordMeta.recordStoreProvider.apply(context);
+      FDBRecordStore recordStore = etcdRecordMetadata.recordStoreProvider.apply(context);
 
       if (log.isTraceEnabled()) {
         // debug: let's scan and print the index to see how it is built:
-        this.etcdRecordMeta.recordStoreProvider.apply(context).scanIndex(
+        this.etcdRecordMetadata.recordStoreProvider.apply(context).scanIndex(
           COUNT_INDEX,
           IndexScanType.BY_GROUP,
           ALL,
@@ -289,14 +327,14 @@ public class KVRecordStore {
 
   public void delete(long leaseID) {
     log.info("deleting all records with lease '{}'", leaseID);
-    Integer count = this.etcdRecordMeta.db.run(context -> {
-      FDBRecordStore recordStore = etcdRecordMeta.recordStoreProvider.apply(context);
+    Integer count = this.etcdRecordMetadata.db.run(context -> {
+      FDBRecordStore recordStore = etcdRecordMetadata.recordStoreProvider.apply(context);
 
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
         .setFilter(Query.field("lease").equalsValue(leaseID)).build();
 
-      return etcdRecordMeta.recordStoreProvider
+      return etcdRecordMetadata.recordStoreProvider
         .apply(context)
         // this returns an asynchronous cursor over the results of our query
         .executeQuery(query)

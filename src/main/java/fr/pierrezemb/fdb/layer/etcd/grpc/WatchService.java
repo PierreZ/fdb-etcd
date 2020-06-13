@@ -2,17 +2,19 @@ package fr.pierrezemb.fdb.layer.etcd.grpc;
 
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.WatchGrpc;
+import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
 import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
 import io.grpc.stub.StreamObserver;
-import io.vertx.core.eventbus.EventBus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class WatchService extends WatchGrpc.WatchImplBase {
   private static final Logger log = LoggerFactory.getLogger(WatchService.class);
   private final RecordServiceBuilder recordServiceBuilder;
+  private final Notifier notifier;
 
-  public WatchService(RecordServiceBuilder recordServiceBuilder) {
+  public WatchService(RecordServiceBuilder recordServiceBuilder, Notifier notifier) {
+    this.notifier = notifier;
     this.recordServiceBuilder = recordServiceBuilder;
   }
 
@@ -62,6 +64,7 @@ public class WatchService extends WatchGrpc.WatchImplBase {
 
   private void handleCreateRequest(EtcdIoRpcProto.WatchCreateRequest createRequest, String tenantId) {
     this.recordServiceBuilder.withTenant(tenantId).watch.put(createRequest);
+    log.info("successfully registered new Watch");
   }
 
 }

@@ -1,20 +1,21 @@
-package fr.pierrezemb.fdb.layer.etcd.store;
-
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+package fr.pierrezemb.fdb.layer.etcd.recordlayer;
 
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.google.protobuf.ByteString;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
-import java.io.IOException;
-import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+
+import java.io.IOException;
+import java.util.List;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class KVRecordStoreTest {
@@ -26,8 +27,8 @@ class KVRecordStoreTest {
   void setUp() throws IOException {
     container.start();
     FDBDatabase db = FDBDatabaseFactory.instance().getDatabase(container.getClusterFile().getAbsolutePath());
-    EtcdRecordMeta etcdRecordMeta = new EtcdRecordMeta(db, "testTenant");
-    recordStore = new KVRecordStore(etcdRecordMeta);
+    EtcdRecordMetadata etcdRecordMetadata = new EtcdRecordMetadata(db, "testTenant");
+    recordStore = new KVRecordStore(etcdRecordMetadata);
   }
 
   @Test

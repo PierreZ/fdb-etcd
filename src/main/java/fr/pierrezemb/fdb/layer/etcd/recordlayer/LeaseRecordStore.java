@@ -1,4 +1,4 @@
-package fr.pierrezemb.fdb.layer.etcd.store;
+package fr.pierrezemb.fdb.layer.etcd.recordlayer;
 
 import com.apple.foundationdb.record.provider.foundationdb.FDBStoredRecord;
 import com.apple.foundationdb.tuple.Tuple;
@@ -9,9 +9,9 @@ import org.slf4j.LoggerFactory;
 
 public class LeaseRecordStore {
   private static final Logger log = LoggerFactory.getLogger(LeaseRecordStore.class);
-  private final EtcdRecordMeta recordLayer;
+  private final EtcdRecordMetadata recordLayer;
 
-  public LeaseRecordStore(EtcdRecordMeta recordLayer) {
+  public LeaseRecordStore(EtcdRecordMetadata recordLayer) {
     this.recordLayer = recordLayer;
   }
 

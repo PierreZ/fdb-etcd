@@ -1,11 +1,5 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
-import static fr.pierrezemb.fdb.layer.etcd.TestUtil.bytesOf;
-import static fr.pierrezemb.fdb.layer.etcd.TestUtil.randomByteSequence;
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
 import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
 import fr.pierrezemb.fdb.layer.etcd.MainVerticle;
 import fr.pierrezemb.fdb.layer.etcd.TestUtil;
@@ -27,10 +21,6 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import java.io.File;
-import java.io.IOException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -38,6 +28,17 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+
+import static fr.pierrezemb.fdb.layer.etcd.TestUtil.bytesOf;
+import static fr.pierrezemb.fdb.layer.etcd.TestUtil.randomByteSequence;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Taken from https://github.com/etcd-io/jetcd/blob/jetcd-0.5.0/jetcd-core/src/test/java/io/etcd/jetcd/KVTest.java

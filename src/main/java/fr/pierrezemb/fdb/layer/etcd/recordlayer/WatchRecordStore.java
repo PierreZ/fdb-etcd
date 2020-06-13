@@ -1,17 +1,27 @@
-package fr.pierrezemb.fdb.layer.etcd.store;
+package fr.pierrezemb.fdb.layer.etcd.recordlayer;
 
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStore;
 import com.apple.foundationdb.tuple.Tuple;
 import etcdserverpb.EtcdIoRpcProto;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class WatchRecordStore {
-  private final EtcdRecordMeta recordLayer;
-    public WatchRecordStore(EtcdRecordMeta recordMeta) {
-      this.recordLayer = recordMeta;
-    }
+  private static final Logger log = LoggerFactory.getLogger(WatchRecordStore.class);
+  private final EtcdRecordMetadata recordLayer;
+
+  public WatchRecordStore(EtcdRecordMetadata recordMeta) {
+    this.recordLayer = recordMeta;
+  }
 
   public void put(EtcdIoRpcProto.WatchCreateRequest createRequest) {
+
+    if (createRequest.getWatchId() == 0) {
+      createRequest = createRequest.toBuilder().setWatchId(System.currentTimeMillis()).build();
+    }
+
+    log.debug("storing watch {}", createRequest);
 
     EtcdRecord.Watch record = EtcdRecord.Watch.newBuilder()
       .setKey(createRequest.getKey())
@@ -22,17 +32,15 @@ public class WatchRecordStore {
     recordLayer.db.run(context -> {
       FDBRecordStore recordStore = recordLayer.recordStoreProvider.apply(context);
       recordStore.saveRecord(record);
-      context.commit();
       return null;
     });
   }
 
   public void delete(long watchId) {
-      recordLayer.db.run(context -> {
-        FDBRecordStore recordStore = recordLayer.recordStoreProvider.apply(context);
-        recordStore.deleteRecord(Tuple.from(watchId));
-        context.commit();
-        return null;
-      });
+    recordLayer.db.run(context -> {
+      FDBRecordStore recordStore = recordLayer.recordStoreProvider.apply(context);
+      recordStore.deleteRecord(Tuple.from(watchId));
+      return null;
+    });
   }
 }

@@ -54,6 +54,7 @@ dependencies {
 
   testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:$junitJupiterEngineVersion"
   testImplementation "org.junit.jupiter:junit-jupiter-api:$junitJupiterEngineVersion"
+  testCompile("org.junit.jupiter:junit-jupiter-params:$junitJupiterEngineVersion")
 }
 
 

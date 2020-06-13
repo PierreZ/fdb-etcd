@@ -2,7 +2,7 @@ package fr.pierrezemb.fdb.layer.etcd.service;
 
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
-import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordMeta;
+import fr.pierrezemb.fdb.layer.etcd.recordlayer.EtcdRecordMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,6 +23,6 @@ public class RecordServiceBuilder {
 
   public RecordService withTenant(String tenant) {
     log.info("using tenant {}", tenant);
-    return new RecordService(new EtcdRecordMeta(db, tenant));
+    return new RecordService(new EtcdRecordMetadata(db, tenant));
   }
 }

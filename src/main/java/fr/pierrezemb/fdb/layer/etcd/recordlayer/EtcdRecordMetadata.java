@@ -1,4 +1,4 @@
-package fr.pierrezemb.fdb.layer.etcd.store;
+package fr.pierrezemb.fdb.layer.etcd.recordlayer;
 
 import com.apple.foundationdb.record.RecordMetaData;
 import com.apple.foundationdb.record.RecordMetaDataBuilder;
@@ -15,14 +15,15 @@ import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpace;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpaceDirectory;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpacePath;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.function.Function;
 
 /**
  * EtcdRecordStore jobs is to generate/handle and expose the recordStoreProvider and fdb
  */
-public class EtcdRecordMeta {
+public class EtcdRecordMetadata {
 
   // Keep a global track of the number of records stored
   protected static final Index COUNT_INDEX = new Index(
@@ -34,7 +35,7 @@ public class EtcdRecordMeta {
     Key.Expressions.field("version").groupBy(Key.Expressions.field("key")),
     IndexTypes.MAX_EVER_LONG);
 
-  private static final Logger log = LoggerFactory.getLogger(EtcdRecordMeta.class);
+  private static final Logger log = LoggerFactory.getLogger(EtcdRecordMetadata.class);
   public final FDBDatabase db;
   public final Function<FDBRecordContext, FDBRecordStore> recordStoreProvider;
   // In this case, the key space implies that there are multiple "applications"
@@ -48,7 +49,7 @@ public class EtcdRecordMeta {
   );
   private final KeySpacePath path;
 
-  public EtcdRecordMeta(FDBDatabase db, String tenant) {
+  public EtcdRecordMetadata(FDBDatabase db, String tenant) {
     this.db = db;
 
 

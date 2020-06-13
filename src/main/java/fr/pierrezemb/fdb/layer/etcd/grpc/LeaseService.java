@@ -5,11 +5,12 @@ import etcdserverpb.LeaseGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
 import io.grpc.stub.StreamObserver;
-import java.util.List;
-import java.util.stream.Collectors;
 import org.apache.commons.lang3.RandomUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * LeaseService corresponds to the Lease GRCP service

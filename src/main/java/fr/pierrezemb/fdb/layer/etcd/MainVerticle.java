@@ -5,6 +5,8 @@ import fr.pierrezemb.fdb.layer.etcd.grpc.AuthService;
 import fr.pierrezemb.fdb.layer.etcd.grpc.KVService;
 import fr.pierrezemb.fdb.layer.etcd.grpc.LeaseService;
 import fr.pierrezemb.fdb.layer.etcd.grpc.WatchService;
+import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
+import fr.pierrezemb.fdb.layer.etcd.notifier.VertxNotifier;
 import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
@@ -22,8 +24,7 @@ public class MainVerticle extends AbstractVerticle {
     System.out.println("connecting to fdb@" + clusterFilePath);
 
     RecordServiceBuilder recordServiceBuilder = new RecordServiceBuilder(clusterFilePath);
-
-
+    Notifier notifier = new VertxNotifier(vertx.eventBus());
 
     VertxServerBuilder serverBuilder = VertxServerBuilder
       .forAddress(vertx,
@@ -32,7 +33,7 @@ public class MainVerticle extends AbstractVerticle {
       .intercept(new AuthInterceptor(authEnabled, defaultTenant))
       .addService(new KVService(recordServiceBuilder))
       .addService(new LeaseService(recordServiceBuilder))
-      .addService(new WatchService(recordServiceBuilder))
+      .addService(new WatchService(recordServiceBuilder, notifier))
       .addService(new AuthService());
 
     VertxServer server = serverBuilder.build();

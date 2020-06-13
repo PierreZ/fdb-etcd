@@ -7,12 +7,13 @@ import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
 import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Promise;
+import mvccpb.EtcdIoKvProto;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import mvccpb.EtcdIoKvProto;
 
 /**
  * KVService corresponds to the KV GRPC service
