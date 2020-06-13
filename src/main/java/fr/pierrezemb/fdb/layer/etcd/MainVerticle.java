@@ -4,6 +4,7 @@ import fr.pierrezemb.fdb.layer.etcd.grpc.AuthInterceptor;
 import fr.pierrezemb.fdb.layer.etcd.grpc.AuthService;
 import fr.pierrezemb.fdb.layer.etcd.grpc.KVService;
 import fr.pierrezemb.fdb.layer.etcd.grpc.LeaseService;
+import fr.pierrezemb.fdb.layer.etcd.grpc.WatchService;
 import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
@@ -22,6 +23,8 @@ public class MainVerticle extends AbstractVerticle {
 
     RecordServiceBuilder recordServiceBuilder = new RecordServiceBuilder(clusterFilePath);
 
+
+
     VertxServerBuilder serverBuilder = VertxServerBuilder
       .forAddress(vertx,
         this.context.config().getString("listen-address", "localhost"),
@@ -29,6 +32,7 @@ public class MainVerticle extends AbstractVerticle {
       .intercept(new AuthInterceptor(authEnabled, defaultTenant))
       .addService(new KVService(recordServiceBuilder))
       .addService(new LeaseService(recordServiceBuilder))
+      .addService(new WatchService(recordServiceBuilder))
       .addService(new AuthService());
 
     VertxServer server = serverBuilder.build();

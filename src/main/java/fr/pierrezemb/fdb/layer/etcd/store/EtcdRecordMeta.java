@@ -60,6 +60,7 @@ public class EtcdRecordMeta {
 
     setupKeyValue(metadataBuilder);
     setupLease(metadataBuilder);
+    setupWatch(metadataBuilder);
 
     // record-layer has the capacity to set versions on each records.
     // see https://github.com/FoundationDB/fdb-record-layer/blob/master/docs/Overview.md#indexing-by-version
@@ -70,6 +71,24 @@ public class EtcdRecordMeta {
       .setContext(context)
       .setKeySpacePath(path)
       .createOrOpen();
+  }
+
+  private void setupWatch(RecordMetaDataBuilder metadataBuilder) {
+    metadataBuilder.getRecordType("Watch").setPrimaryKey(
+      Key.Expressions.field("watch_id")
+    );
+
+    metadataBuilder.addIndex("Watch", new Index(
+      "index-key",
+      Key.Expressions.field("key"),
+      IndexTypes.VALUE
+    ));
+
+    metadataBuilder.addIndex("Watch", new Index(
+      "index-range-end",
+      Key.Expressions.field("range_end"),
+      IndexTypes.VALUE
+    ));
   }
 
   private void setupLease(RecordMetaDataBuilder metadataBuilder) {
