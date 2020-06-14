@@ -60,7 +60,6 @@ public class WatchServiceTest {
     final AtomicReference<WatchResponse> ref = new AtomicReference<>();
 
     try (Watcher watcher = client.getWatchClient().watch(key, response -> {
-      System.out.println("it is working !!!");
       ref.set(response);
       latch.countDown();
     })) {
@@ -77,7 +76,7 @@ public class WatchServiceTest {
     }
   }
 
-  @Ignore
+  @Test
   public void testWatchRangeOnPut() throws Exception {
     final ByteSequence key = ByteSequence.from("b", Charset.defaultCharset());
     final CountDownLatch latch = new CountDownLatch(1);
@@ -91,7 +90,7 @@ public class WatchServiceTest {
       latch.countDown();
     })) {
 
-      Thread.sleep(3000);
+      Thread.sleep(500);
 
       client.getKVClient().put(key, value).get();
       latch.await(4, TimeUnit.SECONDS);

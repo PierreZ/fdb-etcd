@@ -153,10 +153,6 @@ public class KVRecordStore {
     });
   }
 
-  public EtcdRecord.KeyValue put(EtcdRecord.KeyValue record) {
-    return put(record, null);
-  }
-
   public EtcdRecord.KeyValue put(EtcdRecord.KeyValue record, Notifier notifier) {
     return this.etcdRecordMetadata.db.run(context -> {
 
@@ -195,44 +191,34 @@ public class KVRecordStore {
       recordStore.saveRecord(fixedRecord);
       log.trace("successfully put record {} in version {}", fixedRecord.toString(), fixedRecord.getVersion());
 
-//      // checking if we have a Watch underneath
-//      RecordQuery watchQuery = RecordQuery
-//        .newBuilder()
-//        .setRecordType("Watch")
-//        .setFilter(
-//          Query.or(
-//            // watch a single key
-//            Query.and(
-//              Query.field("range_end").isNull(),
-//              Query.field("key").equalsValue(fixedRecord.getKey().toByteArray())
-//            ),
-//              // watching over a range
-//              Query.and(
-//                Query.field("key").lessThanOrEquals(fixedRecord.getKey().toByteArray()),
-//                Query.field("range_end").greaterThanOrEquals(fixedRecord.getKey().toByteArray())
-//              )
-//            )
-//        ).build();
+      // checking if we have a Watch underneath
       RecordQuery watchQuery = RecordQuery
         .newBuilder()
         .setRecordType("Watch")
         .setFilter(
+          Query.or(
             // watch a single key
             Query.and(
               Query.field("range_end").isNull(),
               Query.field("key").equalsValue(fixedRecord.getKey().toByteArray())
+            ),
+              // watching over a range
+              Query.and(
+                Query.field("key").lessThanOrEquals(fixedRecord.getKey().toByteArray()),
+                Query.field("range_end").greaterThanOrEquals(fixedRecord.getKey().toByteArray())
+              )
             )
         ).build();
 
-      List<EtcdRecord.Watch> toto = recordStore.executeQuery(watchQuery)
+      List<EtcdRecord.Watch> watches = recordStore.executeQuery(watchQuery)
         .map(queriedRecord -> EtcdRecord.Watch.newBuilder()
           .mergeFrom(queriedRecord.getRecord()).build())
         .asList().join();
 
-      log.info("@@@@@@@@@@@@@@@@@@@@@ Found {} watchs", toto.size());
+      log.info("@@@@@@@@@@@@@@@@@@@@@ Found {} watches", watches.size());
 
-      if (notifier != null && toto.size() > 0) {
-        toto.forEach(w -> {
+      if (watches.size() > 0) {
+        watches.forEach(w -> {
           log.debug("found a matching watch {}", w);
           EtcdIoKvProto.Event event = EtcdIoKvProto.Event.newBuilder()
             .setType(EtcdIoKvProto.Event.EventType.PUT)
@@ -245,7 +231,10 @@ public class KVRecordStore {
               .build())
             .build();
 
-          notifier.publish("default", w.getWatchId(), event);
+          if (notifier != null) {
+            notifier.publish("default", w.getWatchId(), event);
+          }
+
         });
       } else {
         log.warn("found no matching watch");

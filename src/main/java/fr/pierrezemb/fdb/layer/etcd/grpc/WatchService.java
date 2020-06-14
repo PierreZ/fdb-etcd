@@ -4,6 +4,8 @@ import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.WatchGrpc;
 import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
 import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -77,12 +79,20 @@ public class WatchService extends WatchGrpc.WatchImplBase {
     log.info("successfully registered new Watch");
     notifier.watch(tenantId, createRequest.getWatchId(), event -> {
       log.info("inside WatchService");
-      responseObserver
-        .onNext(EtcdIoRpcProto.WatchResponse.newBuilder()
-          .addEvents(event)
-          .setWatchId(createRequest.getWatchId())
-          .build());
-      responseObserver.onCompleted();
+      try {
+        responseObserver
+          .onNext(EtcdIoRpcProto.WatchResponse.newBuilder()
+            .addEvents(event)
+            .setWatchId(createRequest.getWatchId())
+            .build());
+      } catch (StatusRuntimeException e) {
+        if (e.getStatus().equals(Status.CANCELLED)) {
+          log.warn("connection was closed");
+          return;
+        }
+
+        log.error("cought an error writing response: {}", e.getMessage());
+      }
     });
   }
 }

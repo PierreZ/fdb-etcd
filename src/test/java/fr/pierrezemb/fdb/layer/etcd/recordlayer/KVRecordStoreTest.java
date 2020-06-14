@@ -41,7 +41,7 @@ class KVRecordStoreTest {
       .newBuilder()
       .setKey(key)
       .setValue(value).build();
-    recordStore.put(request);
+    recordStore.put(request, null);
     EtcdRecord.KeyValue storedRecord = recordStore.get(key.toByteArray());
     assertNotNull("storedRecord is null :(", storedRecord);
     assertArrayEquals("keys are different", key.toByteArray(), storedRecord.getKey().toByteArray());
@@ -53,7 +53,7 @@ class KVRecordStoreTest {
       .newBuilder()
       .setKey(key2)
       .setValue(ByteString.copyFromUtf8("tat")).build();
-    recordStore.put(request2);
+    recordStore.put(request2, null);
     EtcdRecord.KeyValue storedRecord2 = recordStore.get(key2.toByteArray());
     assertArrayEquals("keys are different", key2.toByteArray(), storedRecord2.getKey().toByteArray());
     assertArrayEquals("values are different", value.toByteArray(), storedRecord2.getValue().toByteArray());

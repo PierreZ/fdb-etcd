@@ -11,6 +11,5 @@ import mvccpb.EtcdIoKvProto;
  */
 public interface Notifier {
   void publish(String tenant, long watchID, EtcdIoKvProto.Event event);
-  // TODO: abstract the event bus so that it is a true interface
   void watch(String tenant, long watchID, Handler<EtcdIoKvProto.Event> handler);
 }
