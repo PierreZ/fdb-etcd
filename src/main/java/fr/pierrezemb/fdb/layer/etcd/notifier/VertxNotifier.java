@@ -1,8 +1,6 @@
 package fr.pierrezemb.fdb.layer.etcd.notifier;
 
 import com.google.protobuf.InvalidProtocolBufferException;
-import com.google.protobuf.Message;
-import fr.pierrezemb.fdb.layer.etcd.recordlayer.LeaseRecordStore;
 import io.vertx.core.Handler;
 import io.vertx.core.eventbus.EventBus;
 import mvccpb.EtcdIoKvProto;

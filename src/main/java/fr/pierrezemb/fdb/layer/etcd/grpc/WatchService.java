@@ -3,7 +3,7 @@ package fr.pierrezemb.fdb.layer.etcd.grpc;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.WatchGrpc;
 import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
-import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
+import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordLayer;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
@@ -14,12 +14,12 @@ import java.util.Random;
 
 public class WatchService extends WatchGrpc.WatchImplBase {
   private static final Logger log = LoggerFactory.getLogger(WatchService.class);
-  private final RecordServiceBuilder recordServiceBuilder;
   private final Notifier notifier;
+  private final EtcdRecordLayer recordLayer;
 
-  public WatchService(RecordServiceBuilder recordServiceBuilder, Notifier notifier) {
+  public WatchService(EtcdRecordLayer etcdRecordLayer, Notifier notifier) {
+    this.recordLayer = etcdRecordLayer;
     this.notifier = notifier;
-    this.recordServiceBuilder = recordServiceBuilder;
   }
 
   @Override
@@ -70,12 +70,12 @@ public class WatchService extends WatchGrpc.WatchImplBase {
   }
 
   private void handleCancelRequest(EtcdIoRpcProto.WatchCancelRequest cancelRequest, String tenantId) {
-    this.recordServiceBuilder.withTenant(tenantId).watch.delete(cancelRequest.getWatchId());
+    this.recordLayer.deleteWatch(tenantId, cancelRequest.getWatchId());
   }
 
   private void handleCreateRequest(EtcdIoRpcProto.WatchCreateRequest createRequest, String tenantId, StreamObserver<EtcdIoRpcProto.WatchResponse> responseObserver) {
 
-    this.recordServiceBuilder.withTenant(tenantId).watch.put(createRequest);
+    this.recordLayer.put(tenantId, createRequest);
     log.info("successfully registered new Watch");
     notifier.watch(tenantId, createRequest.getWatchId(), event -> {
       log.info("inside WatchService");

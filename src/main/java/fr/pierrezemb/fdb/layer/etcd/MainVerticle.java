@@ -7,11 +7,13 @@ import fr.pierrezemb.fdb.layer.etcd.grpc.LeaseService;
 import fr.pierrezemb.fdb.layer.etcd.grpc.WatchService;
 import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
 import fr.pierrezemb.fdb.layer.etcd.notifier.VertxNotifier;
-import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
+import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordLayer;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.grpc.VertxServer;
 import io.vertx.grpc.VertxServerBuilder;
+
+import javax.crypto.spec.SecretKeySpec;
 
 public class MainVerticle extends AbstractVerticle {
 
@@ -23,7 +25,7 @@ public class MainVerticle extends AbstractVerticle {
     String defaultTenant = this.context.config().getString("default-tenant", "default");
     System.out.println("connecting to fdb@" + clusterFilePath);
 
-    RecordServiceBuilder recordServiceBuilder = new RecordServiceBuilder(clusterFilePath);
+    EtcdRecordLayer recordLayer = new EtcdRecordLayer(clusterFilePath);
     Notifier notifier = new VertxNotifier(vertx.eventBus());
 
     VertxServerBuilder serverBuilder = VertxServerBuilder
@@ -31,9 +33,9 @@ public class MainVerticle extends AbstractVerticle {
         this.context.config().getString("listen-address", "localhost"),
         this.context.config().getInteger("listen-port", 8080))
       .intercept(new AuthInterceptor(authEnabled, defaultTenant))
-      .addService(new KVService(recordServiceBuilder, notifier))
-      .addService(new LeaseService(recordServiceBuilder))
-      .addService(new WatchService(recordServiceBuilder, notifier))
+      .addService(new KVService(recordLayer, notifier))
+      .addService(new LeaseService(recordLayer))
+      .addService(new WatchService(recordLayer, notifier))
       .addService(new AuthService());
 
     VertxServer server = serverBuilder.build();
