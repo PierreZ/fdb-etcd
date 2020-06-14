@@ -4,6 +4,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.KVGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
+import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
 import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
 import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Promise;
@@ -21,9 +22,11 @@ import java.util.stream.Stream;
 public class KVService extends KVGrpc.KVVertxImplBase {
 
   private final RecordServiceBuilder recordServiceBuilder;
+  private final Notifier notifier;
 
-  public KVService(RecordServiceBuilder recordServiceBuilder) {
+  public KVService(RecordServiceBuilder recordServiceBuilder, Notifier notifier) {
     this.recordServiceBuilder = recordServiceBuilder;
+    this.notifier = notifier;
   }
 
   /**
@@ -54,7 +57,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
     }
 
     try {
-      put = this.recordServiceBuilder.withTenant(tenantId).kv.put(ProtoUtils.from(request));
+      put = this.recordServiceBuilder.withTenant(tenantId).kv.put(ProtoUtils.from(request), notifier);
     } catch (InvalidProtocolBufferException e) {
       response.fail(e);
       return;

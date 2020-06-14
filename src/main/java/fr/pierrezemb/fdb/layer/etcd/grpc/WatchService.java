@@ -8,6 +8,8 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Random;
+
 public class WatchService extends WatchGrpc.WatchImplBase {
   private static final Logger log = LoggerFactory.getLogger(WatchService.class);
   private final RecordServiceBuilder recordServiceBuilder;
@@ -29,10 +31,17 @@ public class WatchService extends WatchGrpc.WatchImplBase {
 
       @Override
       public void onNext(EtcdIoRpcProto.WatchRequest request) {
+        log.debug("received a watchRequest {}", request);
         switch (request.getRequestUnionCase()) {
 
           case CREATE_REQUEST:
-            handleCreateRequest(request.getCreateRequest(), tenantId);
+
+            EtcdIoRpcProto.WatchCreateRequest createRequest = request.getCreateRequest();
+            if (createRequest.getWatchId() == 0) {
+              createRequest = createRequest.toBuilder().setWatchId(new Random(42).nextLong()).build();
+            }
+
+            handleCreateRequest(createRequest, tenantId, responseObserver);
             break;
           case CANCEL_REQUEST:
             handleCancelRequest(request.getCancelRequest(), tenantId);
@@ -62,9 +71,18 @@ public class WatchService extends WatchGrpc.WatchImplBase {
     this.recordServiceBuilder.withTenant(tenantId).watch.delete(cancelRequest.getWatchId());
   }
 
-  private void handleCreateRequest(EtcdIoRpcProto.WatchCreateRequest createRequest, String tenantId) {
+  private void handleCreateRequest(EtcdIoRpcProto.WatchCreateRequest createRequest, String tenantId, StreamObserver<EtcdIoRpcProto.WatchResponse> responseObserver) {
+
     this.recordServiceBuilder.withTenant(tenantId).watch.put(createRequest);
     log.info("successfully registered new Watch");
+    notifier.watch(tenantId, createRequest.getWatchId(), event -> {
+      log.info("inside WatchService");
+      responseObserver
+        .onNext(EtcdIoRpcProto.WatchResponse.newBuilder()
+          .addEvents(event)
+          .setWatchId(createRequest.getWatchId())
+          .build());
+      responseObserver.onCompleted();
+    });
   }
-
 }

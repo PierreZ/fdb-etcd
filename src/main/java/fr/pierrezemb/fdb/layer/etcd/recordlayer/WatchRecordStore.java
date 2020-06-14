@@ -17,9 +17,6 @@ public class WatchRecordStore {
 
   public void put(EtcdIoRpcProto.WatchCreateRequest createRequest) {
 
-    if (createRequest.getWatchId() == 0) {
-      createRequest = createRequest.toBuilder().setWatchId(System.currentTimeMillis()).build();
-    }
 
     log.debug("storing watch {}", createRequest);
 

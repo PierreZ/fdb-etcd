@@ -13,6 +13,7 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import org.junit.Ignore;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -53,6 +54,31 @@ public class WatchServiceTest {
 
   @Test
   public void testWatchOnPut() throws Exception {
+    final ByteSequence key = randomByteSequence();
+    final CountDownLatch latch = new CountDownLatch(1);
+    final ByteSequence value = randomByteSequence();
+    final AtomicReference<WatchResponse> ref = new AtomicReference<>();
+
+    try (Watcher watcher = client.getWatchClient().watch(key, response -> {
+      System.out.println("it is working !!!");
+      ref.set(response);
+      latch.countDown();
+    })) {
+
+      Thread.sleep(2000);
+
+      client.getKVClient().put(key, value).get();
+      latch.await(4, TimeUnit.SECONDS);
+
+      assertNotNull(ref.get());
+      assertEquals(1, ref.get().getEvents().size());
+      assertEquals(EventType.PUT, ref.get().getEvents().get(0).getEventType());
+      assertEquals(key, ref.get().getEvents().get(0).getKeyValue().getKey());
+    }
+  }
+
+  @Ignore
+  public void testWatchRangeOnPut() throws Exception {
     final ByteSequence key = ByteSequence.from("b", Charset.defaultCharset());
     final CountDownLatch latch = new CountDownLatch(1);
     final ByteSequence value = randomByteSequence();

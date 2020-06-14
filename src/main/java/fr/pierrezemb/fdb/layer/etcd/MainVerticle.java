@@ -31,7 +31,7 @@ public class MainVerticle extends AbstractVerticle {
         this.context.config().getString("listen-address", "localhost"),
         this.context.config().getInteger("listen-port", 8080))
       .intercept(new AuthInterceptor(authEnabled, defaultTenant))
-      .addService(new KVService(recordServiceBuilder))
+      .addService(new KVService(recordServiceBuilder, notifier))
       .addService(new LeaseService(recordServiceBuilder))
       .addService(new WatchService(recordServiceBuilder, notifier))
       .addService(new AuthService());
