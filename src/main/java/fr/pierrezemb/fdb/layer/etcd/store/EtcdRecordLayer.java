@@ -26,8 +26,11 @@ import com.apple.foundationdb.tuple.Tuple;
 import com.google.protobuf.Message;
 import etcdserverpb.EtcdIoRpcProto;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
+import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
+import mvccpb.EtcdIoKvProto;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import javax.crypto.SecretKey;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
@@ -37,32 +40,24 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 
-import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
-import mvccpb.EtcdIoKvProto;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import static com.apple.foundationdb.record.TupleRange.ALL;
 
 public class EtcdRecordLayer {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(EtcdRecordLayer.class);
-  private final FDBDatabase db;
-
-  private final KeySpace keySpace = new KeySpace(
-    new DirectoryLayerDirectory("application")
-      .addSubdirectory(new KeySpaceDirectory("tenant", KeySpaceDirectory.KeyType.STRING))
-  );
-
   // Keep a global track of the number of records stored
   protected static final Index COUNT_INDEX = new Index(
     "globalRecordCount", new GroupingKeyExpression(EmptyKeyExpression.EMPTY, 0), IndexTypes.COUNT);
-
   // keep track of the version per key with an index
   protected static final Index INDEX_VERSION_PER_KEY = new Index(
     "index-version-per-key",
     Key.Expressions.field("version").groupBy(Key.Expressions.field("key")),
     IndexTypes.MAX_EVER_LONG);
+  private static final Logger LOGGER = LoggerFactory.getLogger(EtcdRecordLayer.class);
+  private final FDBDatabase db;
+  private final KeySpace keySpace = new KeySpace(
+    new DirectoryLayerDirectory("application")
+      .addSubdirectory(new KeySpaceDirectory("tenant", KeySpaceDirectory.KeyType.STRING))
+  );
 
 
   public EtcdRecordLayer(String clusterFilePath) throws InterruptedException, ExecutionException, TimeoutException {
@@ -230,15 +225,15 @@ public class EtcdRecordLayer {
 
       return
         fdbRecordStore.executeQuery(query)
-        .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
-          .mergeFrom(queriedRecord.getRecord()).build())
-        .map(r -> {
-          LOGGER.trace("found a record to delete: {}", r);
-          return r;
-        })
-        .map(record -> fdbRecordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion())))
-        .getCount()
-        .join();
+          .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
+            .mergeFrom(queriedRecord.getRecord()).build())
+          .map(r -> {
+            LOGGER.trace("found a record to delete: {}", r);
+            return r;
+          })
+          .map(record -> fdbRecordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion())))
+          .getCount()
+          .join();
     });
     LOGGER.trace("deleted {} records", count);
     return count;

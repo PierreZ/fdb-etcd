@@ -13,8 +13,6 @@ import io.vertx.core.Promise;
 import io.vertx.grpc.VertxServer;
 import io.vertx.grpc.VertxServerBuilder;
 
-import javax.crypto.spec.SecretKeySpec;
-
 public class MainVerticle extends AbstractVerticle {
 
   @Override

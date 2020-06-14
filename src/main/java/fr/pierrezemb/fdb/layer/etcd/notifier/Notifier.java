@@ -1,6 +1,5 @@
 package fr.pierrezemb.fdb.layer.etcd.notifier;
 
-import com.google.protobuf.Message;
 import io.vertx.core.Handler;
 import mvccpb.EtcdIoKvProto;
 
@@ -11,5 +10,6 @@ import mvccpb.EtcdIoKvProto;
  */
 public interface Notifier {
   void publish(String tenant, long watchID, EtcdIoKvProto.Event event);
+
   void watch(String tenant, long watchID, Handler<EtcdIoKvProto.Event> handler);
 }

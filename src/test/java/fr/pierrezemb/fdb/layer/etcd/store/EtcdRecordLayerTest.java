@@ -1,7 +1,5 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
-import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
-import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.google.protobuf.ByteString;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;

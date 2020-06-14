@@ -11,8 +11,8 @@ import org.slf4j.LoggerFactory;
  * A Notifier that use Vertx Event Bus
  */
 public class VertxNotifier implements Notifier {
-  private final EventBus eventBus;
   private static final Logger log = LoggerFactory.getLogger(VertxNotifier.class);
+  private final EventBus eventBus;
 
   public VertxNotifier(EventBus eventBus) {
     this.eventBus = eventBus;
