@@ -4,25 +4,29 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.KVGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
+import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
+import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordLayer;
 import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Promise;
+import mvccpb.EtcdIoKvProto;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import mvccpb.EtcdIoKvProto;
 
 /**
  * KVService corresponds to the KV GRPC service
  */
 public class KVService extends KVGrpc.KVVertxImplBase {
 
-  private final RecordServiceBuilder recordServiceBuilder;
+  private final Notifier notifier;
+  private final EtcdRecordLayer recordLayer;
 
-  public KVService(RecordServiceBuilder recordServiceBuilder) {
-    this.recordServiceBuilder = recordServiceBuilder;
+  public KVService(EtcdRecordLayer recordLayer, Notifier notifier) {
+    this.recordLayer = recordLayer;
+    this.notifier = notifier;
   }
 
   /**
@@ -45,7 +49,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
     }
 
     if (request.getLease() > 0) {
-      EtcdRecord.Lease lease = this.recordServiceBuilder.withTenant(tenantId).lease.get(request.getLease());
+      EtcdRecord.Lease lease = this.recordLayer.get(tenantId, request.getLease());
       if (null == lease) {
         response.fail(new RuntimeException("etcdserver: requested lease not found"));
         return;
@@ -53,7 +57,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
     }
 
     try {
-      put = this.recordServiceBuilder.withTenant(tenantId).kv.put(ProtoUtils.from(request));
+      put = this.recordLayer.put(tenantId, ProtoUtils.from(request), notifier);
     } catch (InvalidProtocolBufferException e) {
       response.fail(e);
       return;
@@ -94,14 +98,10 @@ public class KVService extends KVGrpc.KVVertxImplBase {
 
     if (request.getRangeEnd().isEmpty()) {
       // get
-      results.add(this.recordServiceBuilder
-        .withTenant(tenantId)
-        .kv.get(request.getKey().toByteArray(), version));
+      results.add(recordLayer.get(tenantId, request.getKey().toByteArray(), version));
     } else {
       // scan
-      results = this.recordServiceBuilder
-        .withTenant(tenantId)
-        .kv.scan(request.getKey().toByteArray(), request.getRangeEnd().toByteArray(), version);
+      results = recordLayer.scan(tenantId, request.getKey().toByteArray(), request.getRangeEnd().toByteArray(), version);
     }
 
     List<EtcdIoKvProto.KeyValue> kvs = results.stream()
@@ -162,9 +162,10 @@ public class KVService extends KVGrpc.KVVertxImplBase {
     if (tenantId == null) {
       throw new RuntimeException("Tenant id not found.");
     }
-    Integer count = this.recordServiceBuilder.withTenant(tenantId).kv.delete(
+    Integer count = this.recordLayer.delete(
+      tenantId,
       request.getKey().toByteArray(),
-      request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray());
+      request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray(), notifier);
     response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
   }
 
@@ -184,7 +185,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
     if (tenantId == null) {
       throw new RuntimeException("Auth enabled and tenant not found.");
     }
-    this.recordServiceBuilder.withTenant(tenantId).kv.compact(request.getRevision());
+    this.recordLayer.compact(tenantId, request.getRevision());
     response.complete();
   }
 }

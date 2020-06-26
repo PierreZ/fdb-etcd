@@ -3,23 +3,24 @@ package fr.pierrezemb.fdb.layer.etcd.grpc;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.LeaseGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import fr.pierrezemb.fdb.layer.etcd.service.RecordServiceBuilder;
+import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordLayer;
 import io.grpc.stub.StreamObserver;
-import java.util.List;
-import java.util.stream.Collectors;
 import org.apache.commons.lang3.RandomUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * LeaseService corresponds to the Lease GRCP service
  */
 public class LeaseService extends LeaseGrpc.LeaseImplBase {
   private static final Logger log = LoggerFactory.getLogger(LeaseService.class);
-  private final RecordServiceBuilder recordServiceBuilder;
+  private final EtcdRecordLayer recordLayer;
 
-  public LeaseService(RecordServiceBuilder recordServiceBuilder) {
-    this.recordServiceBuilder = recordServiceBuilder;
+  public LeaseService(EtcdRecordLayer etcdRecordLayer) {
+    this.recordLayer = etcdRecordLayer;
   }
 
   /**
@@ -50,7 +51,7 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
       .setInsertTimestamp(System.currentTimeMillis())
       .build();
 
-    recordServiceBuilder.withTenant(tenantId).lease.put(lease);
+    this.recordLayer.put(tenantId, lease);
     responseObserver
       .onNext(EtcdIoRpcProto
         .LeaseGrantResponse.newBuilder()
@@ -74,8 +75,8 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
     if (tenantId == null) {
       throw new RuntimeException("Auth enabled and tenant not found.");
     }
-    recordServiceBuilder.withTenant(tenantId).lease.delete(request.getID());
-    recordServiceBuilder.withTenant(tenantId).kv.delete(request.getID());
+    this.recordLayer.deleteLease(tenantId, request.getID());
+    this.recordLayer.deleteRecordsWithLease(tenantId, request.getID());
     responseObserver.onNext(EtcdIoRpcProto.LeaseRevokeResponse.newBuilder().build());
     responseObserver.onCompleted();
   }
@@ -100,7 +101,7 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
         if (log.isTraceEnabled()) {
           log.trace("receive a keepAlive for lease {}", value.getID());
         }
-        EtcdRecord.Lease record = recordServiceBuilder.withTenant(tenantId).lease.keepAlive(value.getID());
+        EtcdRecord.Lease record = recordLayer.keepAlive(tenantId, value.getID());
         if (log.isTraceEnabled()) {
           log.trace("lease {} updated", value.getID());
           responseObserver.onNext(EtcdIoRpcProto.LeaseKeepAliveResponse.newBuilder()
@@ -135,8 +136,8 @@ public class LeaseService extends LeaseGrpc.LeaseImplBase {
     if (tenantId == null) {
       throw new RuntimeException("Auth enabled and tenant not found.");
     }
-    EtcdRecord.Lease lease = recordServiceBuilder.withTenant(tenantId).lease.get(request.getID());
-    List<EtcdRecord.KeyValue> records = recordServiceBuilder.withTenant(tenantId).kv.getWithLease(request.getID());
+    EtcdRecord.Lease lease = recordLayer.get(tenantId, request.getID());
+    List<EtcdRecord.KeyValue> records = recordLayer.getWithLease(tenantId, request.getID());
     responseObserver.onNext(EtcdIoRpcProto.LeaseTimeToLiveResponse.newBuilder()
       .setID(request.getID())
       .setTTL(lease.getTTL())

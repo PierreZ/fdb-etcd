@@ -1,33 +1,33 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-
-import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
-import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.google.protobuf.ByteString;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
-import java.io.IOException;
-import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class KVRecordStoreTest {
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class EtcdRecordLayerTest {
+
+  private static final String TENANT = "my-tenant";
   private final FoundationDBContainer container = new FoundationDBContainer();
-  private KVRecordStore recordStore;
+  private EtcdRecordLayer recordLayer;
 
   @BeforeAll
-  void setUp() throws IOException {
+  void setUp() throws IOException, InterruptedException, ExecutionException, TimeoutException {
     container.start();
-    FDBDatabase db = FDBDatabaseFactory.instance().getDatabase(container.getClusterFile().getAbsolutePath());
-    EtcdRecordMeta etcdRecordMeta = new EtcdRecordMeta(db, "testTenant");
-    recordStore = new KVRecordStore(etcdRecordMeta);
+    this.recordLayer = new EtcdRecordLayer(container.getClusterFile().getAbsolutePath());
   }
 
   @Test
@@ -40,8 +40,8 @@ class KVRecordStoreTest {
       .newBuilder()
       .setKey(key)
       .setValue(value).build();
-    recordStore.put(request);
-    EtcdRecord.KeyValue storedRecord = recordStore.get(key.toByteArray());
+    recordLayer.put(TENANT, request, null);
+    EtcdRecord.KeyValue storedRecord = recordLayer.get(TENANT, key.toByteArray());
     assertNotNull("storedRecord is null :(", storedRecord);
     assertArrayEquals("keys are different", key.toByteArray(), storedRecord.getKey().toByteArray());
     assertArrayEquals("values are different", value.toByteArray(), storedRecord.getValue().toByteArray());
@@ -52,21 +52,21 @@ class KVRecordStoreTest {
       .newBuilder()
       .setKey(key2)
       .setValue(ByteString.copyFromUtf8("tat")).build();
-    recordStore.put(request2);
-    EtcdRecord.KeyValue storedRecord2 = recordStore.get(key2.toByteArray());
+    recordLayer.put(TENANT, request2, null);
+    EtcdRecord.KeyValue storedRecord2 = recordLayer.get(TENANT, key2.toByteArray());
     assertArrayEquals("keys are different", key2.toByteArray(), storedRecord2.getKey().toByteArray());
     assertArrayEquals("values are different", value.toByteArray(), storedRecord2.getValue().toByteArray());
 
     // and scan!
-    List<EtcdRecord.KeyValue> scanResult = recordStore.scan("/tot".getBytes(), "/u".getBytes());
+    List<EtcdRecord.KeyValue> scanResult = recordLayer.scan(TENANT, "/tot".getBytes(), "/u".getBytes());
     assertEquals(2, scanResult.size());
 
-    long count = recordStore.stats();
+    long count = recordLayer.stats(TENANT);
     assertEquals("count is bad", 2, count);
 
     // and delete
-    recordStore.delete("/tot".getBytes(), "/u".getBytes());
-    List<EtcdRecord.KeyValue> scanResult2 = recordStore.scan("/tot".getBytes(), "/u".getBytes());
+    recordLayer.delete(TENANT, "/tot".getBytes(), "/u".getBytes(), null);
+    List<EtcdRecord.KeyValue> scanResult2 = recordLayer.scan(TENANT, "/tot".getBytes(), "/u".getBytes());
     assertEquals(0, scanResult2.size());
 
   }
