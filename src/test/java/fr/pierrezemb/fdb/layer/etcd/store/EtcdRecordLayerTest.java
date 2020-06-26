@@ -65,7 +65,7 @@ class EtcdRecordLayerTest {
     assertEquals("count is bad", 2, count);
 
     // and delete
-    recordLayer.delete(TENANT, "/tot".getBytes(), "/u".getBytes());
+    recordLayer.delete(TENANT, "/tot".getBytes(), "/u".getBytes(), null);
     List<EtcdRecord.KeyValue> scanResult2 = recordLayer.scan(TENANT, "/tot".getBytes(), "/u".getBytes());
     assertEquals(0, scanResult2.size());
 

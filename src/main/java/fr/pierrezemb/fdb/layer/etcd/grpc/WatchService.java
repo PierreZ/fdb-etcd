@@ -16,10 +16,12 @@ public class WatchService extends WatchGrpc.WatchImplBase {
   private static final Logger log = LoggerFactory.getLogger(WatchService.class);
   private final Notifier notifier;
   private final EtcdRecordLayer recordLayer;
+  private final Random random;
 
   public WatchService(EtcdRecordLayer etcdRecordLayer, Notifier notifier) {
     this.recordLayer = etcdRecordLayer;
     this.notifier = notifier;
+    random = new Random(System.currentTimeMillis());
   }
 
   @Override
@@ -40,7 +42,7 @@ public class WatchService extends WatchGrpc.WatchImplBase {
 
             EtcdIoRpcProto.WatchCreateRequest createRequest = request.getCreateRequest();
             if (createRequest.getWatchId() == 0) {
-              createRequest = createRequest.toBuilder().setWatchId(new Random(42).nextLong()).build();
+              createRequest = createRequest.toBuilder().setWatchId(random.nextLong()).build();
             }
 
             handleCreateRequest(createRequest, tenantId, responseObserver);
@@ -70,6 +72,7 @@ public class WatchService extends WatchGrpc.WatchImplBase {
   }
 
   private void handleCancelRequest(EtcdIoRpcProto.WatchCancelRequest cancelRequest, String tenantId) {
+    log.info("cancel watch");
     this.recordLayer.deleteWatch(tenantId, cancelRequest.getWatchId());
   }
 

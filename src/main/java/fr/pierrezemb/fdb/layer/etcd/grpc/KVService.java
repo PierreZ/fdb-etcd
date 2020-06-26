@@ -165,7 +165,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
     Integer count = this.recordLayer.delete(
       tenantId,
       request.getKey().toByteArray(),
-      request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray());
+      request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray(), notifier);
     response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
   }
 

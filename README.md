@@ -15,6 +15,7 @@ An experiment to provide ETCD layer on top of FoundationDB, built with [Record-L
     * delete,
     * compact,
     * leases,
+    * watches,
 * ETCD MVCC simulated using FDB's read version
 * multi-tenancy (soon back by the AuthService)
 

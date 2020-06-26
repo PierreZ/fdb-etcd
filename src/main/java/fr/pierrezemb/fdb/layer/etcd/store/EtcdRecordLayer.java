@@ -158,23 +158,7 @@ public class EtcdRecordLayer {
       LOGGER.trace("successfully put record {} in version {}", fixedRecord.toString(), fixedRecord.getVersion());
 
       // checking if we have a Watch underneath
-      RecordQuery watchQuery = RecordQuery
-        .newBuilder()
-        .setRecordType("Watch")
-        .setFilter(
-          Query.or(
-            // watch a single key
-            Query.and(
-              Query.field("range_end").isNull(),
-              Query.field("key").equalsValue(fixedRecord.getKey().toByteArray())
-            ),
-            // watching over a range
-            Query.and(
-              Query.field("key").lessThanOrEquals(fixedRecord.getKey().toByteArray()),
-              Query.field("range_end").greaterThanOrEquals(fixedRecord.getKey().toByteArray())
-            )
-          )
-        ).build();
+      RecordQuery watchQuery = createWatchQuery(fixedRecord.getKey().toByteArray());
 
       List<EtcdRecord.Watch> watches = fdbRecordStore.executeQuery(watchQuery)
         .map(queriedRecord -> EtcdRecord.Watch.newBuilder()
@@ -210,8 +194,28 @@ public class EtcdRecordLayer {
     });
   }
 
+  private RecordQuery createWatchQuery(byte[] key) {
+    return RecordQuery
+      .newBuilder()
+      .setRecordType("Watch")
+      .setFilter(
+        Query.or(
+          // watch a single key
+          Query.and(
+            Query.field("range_end").isNull(),
+            Query.field("key").equalsValue(key)
+          ),
+          // watching over a range
+          Query.and(
+            Query.field("key").lessThanOrEquals(key),
+            Query.field("range_end").greaterThanOrEquals(key)
+          )
+        )
+      ).build();
+  }
 
-  public Integer delete(String tenantID, byte[] start, byte[] end) {
+
+  public Integer delete(String tenantID, byte[] start, byte[] end, Notifier notifier) {
     Integer count = this.db.run(context -> {
       LOGGER.trace("deleting between {} and {}", start, end);
       FDBRecordStore fdbRecordStore = createFDBRecordStore(context, tenantID);
@@ -231,7 +235,38 @@ public class EtcdRecordLayer {
             LOGGER.trace("found a record to delete: {}", r);
             return r;
           })
-          .map(record -> fdbRecordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion())))
+          // delete records
+          .map(record -> {
+            fdbRecordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion()));
+            return record;
+          })
+          // TODO: this may fall down to the 5s limit... We should change the overall architecture
+          .map(record -> {
+            RecordQuery watchQuery = createWatchQuery(record.getKey().toByteArray());
+            fdbRecordStore
+              .executeQuery(watchQuery)
+              .map(queriedRecord -> EtcdRecord.Watch.newBuilder()
+                .mergeFrom(queriedRecord.getRecord()).build())
+              .forEach(w -> {
+
+                LOGGER.debug("found a matching watch {}", w);
+                EtcdIoKvProto.Event event = EtcdIoKvProto.Event.newBuilder()
+                  .setType(EtcdIoKvProto.Event.EventType.DELETE)
+                  .setKv(EtcdIoKvProto.KeyValue.newBuilder()
+                    .setKey(record.getKey())
+                    .setValue(record.getValue())
+                    .setLease(record.getLease())
+                    .setModRevision(record.getModRevision())
+                    .setVersion(record.getModRevision())
+                    .build())
+                  .build();
+
+                if (notifier != null) {
+                  notifier.publish(tenantID, w.getWatchId(), event);
+                }
+              });
+            return record;
+          })
           .getCount()
           .join();
     });

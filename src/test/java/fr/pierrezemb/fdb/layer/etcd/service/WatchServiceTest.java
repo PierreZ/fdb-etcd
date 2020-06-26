@@ -14,8 +14,11 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.File;
@@ -30,6 +33,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 @ExtendWith(VertxExtension.class)
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class WatchServiceTest {
   private final FoundationDBContainer container = new FoundationDBContainer();
@@ -52,11 +56,13 @@ public class WatchServiceTest {
   }
 
   @Test
+  @Order(1)
   public void testWatchOnPut() throws Exception {
     final ByteSequence key = randomByteSequence();
     final CountDownLatch latch = new CountDownLatch(1);
     final ByteSequence value = randomByteSequence();
     final AtomicReference<WatchResponse> ref = new AtomicReference<>();
+
 
     try (Watcher watcher = client.getWatchClient().watch(key, response -> {
       ref.set(response);
@@ -68,6 +74,8 @@ public class WatchServiceTest {
       client.getKVClient().put(key, value).get();
       latch.await(4, TimeUnit.SECONDS);
 
+      watcher.close();
+
       assertNotNull(ref.get());
       assertEquals(1, ref.get().getEvents().size());
       assertEquals(EventType.PUT, ref.get().getEvents().get(0).getEventType());
@@ -76,6 +84,7 @@ public class WatchServiceTest {
   }
 
   @Test
+  @Order(2)
   public void testWatchRangeOnPut() throws Exception {
     final ByteSequence key = ByteSequence.from("b", Charset.defaultCharset());
     final CountDownLatch latch = new CountDownLatch(1);
@@ -94,9 +103,38 @@ public class WatchServiceTest {
       client.getKVClient().put(key, value).get();
       latch.await(4, TimeUnit.SECONDS);
 
+      watcher.close();
+
       assertNotNull(ref.get());
       assertEquals(1, ref.get().getEvents().size());
       assertEquals(EventType.PUT, ref.get().getEvents().get(0).getEventType());
+      assertEquals(key, ref.get().getEvents().get(0).getKeyValue().getKey());
+    }
+  }
+
+  @Test
+  @Order(3)
+  public void testWatchRangeOnDelete() throws Exception {
+    final ByteSequence key = ByteSequence.from("b", Charset.defaultCharset());
+    final CountDownLatch latch = new CountDownLatch(1);
+    final AtomicReference<WatchResponse> ref = new AtomicReference<>();
+
+    try (Watcher watcher = client.getWatchClient().watch(ByteSequence.from("a", Charset.defaultCharset()), WatchOption.newBuilder()
+      .withRange(ByteSequence.from("c", Charset.defaultCharset()))
+      .build(), response -> {
+      ref.set(response);
+      latch.countDown();
+    })) {
+
+      Thread.sleep(500);
+
+      client.getKVClient().delete(key).get();
+      latch.await(4, TimeUnit.SECONDS);
+      watcher.close();
+
+      assertNotNull(ref.get());
+      assertEquals(1, ref.get().getEvents().size());
+      assertEquals(EventType.DELETE, ref.get().getEvents().get(0).getEventType());
       assertEquals(key, ref.get().getEvents().get(0).getKeyValue().getKey());
     }
   }
