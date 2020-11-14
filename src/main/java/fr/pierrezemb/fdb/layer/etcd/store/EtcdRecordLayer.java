@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 
 import static com.apple.foundationdb.record.TupleRange.ALL;
 
@@ -78,7 +79,20 @@ public class EtcdRecordLayer {
     LOGGER.trace("retrieving record {} for revision {}", Arrays.toString(key), revision);
     List<EtcdRecord.KeyValue> records = db.run(context -> {
       FDBRecordStore fdbRecordStore = createFDBRecordStore(context, tenantID);
-      RecordQuery query = createGetQuery(key, revision);
+
+      // creating the query
+      RecordQuery query = RecordQuery.newBuilder()
+        .setRecordType("KeyValue")
+        .setFilter(
+          revision == 0 ?
+            // no revision
+            Query.field("key").equalsValue(key) :
+            // with revision
+            Query.and(
+              Query.field("key").equalsValue(key),
+              Query.field("mod_revision").lessThanOrEquals(revision))
+        ).build();
+
       return runQuery(fdbRecordStore, context, query);
     });
 
@@ -89,21 +103,6 @@ public class EtcdRecordLayer {
 
     // return the highest version for a given key
     return records.stream().max(Comparator.comparing(EtcdRecord.KeyValue::getVersion)).get();
-  }
-
-  private RecordQuery createGetQuery(byte[] key, long revision) {
-    // creating the query
-    return RecordQuery.newBuilder()
-      .setRecordType("KeyValue")
-      .setFilter(
-        revision == 0 ?
-          // no revision
-          Query.field("key").equalsValue(key) :
-          // with revision
-          Query.and(
-            Query.field("key").equalsValue(key),
-            Query.field("mod_revision").lessThanOrEquals(revision))
-      ).build();
   }
 
   public List<EtcdRecord.KeyValue> scan(String tenant, byte[] start, byte[] end) {
@@ -146,24 +145,12 @@ public class EtcdRecordLayer {
           Key.Evaluated.concatenate(record.getKey().toByteArray()), IsolationLevel.SERIALIZABLE)
         .join();
 
-      long readVersion = context.getReadVersion();
-      long version = readVersion;
-      long createRevision = readVersion;
-      long modRevision = readVersion;
-
-      // retrieve latest version of the key
-      if (maxResult != null) {
-        RecordQuery query = createGetQuery(record.getKey().toByteArray(), maxResult.getLong(0));
-        List<EtcdRecord.KeyValue> keyValueList = runQuery(fdbRecordStore, context, query);
-        if (keyValueList.size() == 1) {
-          createRevision = keyValueList.get(0).getCreateRevision();
-        }
-      }
+      long version = null == maxResult ? 1 : maxResult.getLong(0) + 1;
 
       EtcdRecord.KeyValue fixedRecord = record.toBuilder()
         .setVersion(version)
-        .setCreateRevision(createRevision)
-        .setModRevision(modRevision)
+        .setCreateRevision(context.getReadVersion())
+        .setModRevision(context.getReadVersion()) // using read version as mod revision
         .build();
 
       LOGGER.trace("putting record key '{}' in version {}", fixedRecord.getKey().toStringUtf8(), version);
@@ -208,7 +195,6 @@ public class EtcdRecordLayer {
   }
 
   private RecordQuery createWatchQuery(byte[] key) {
-    LOGGER.info("searching for a watch containing {}", key);
     return RecordQuery
       .newBuilder()
       .setRecordType("Watch")
@@ -227,6 +213,7 @@ public class EtcdRecordLayer {
         )
       ).build();
   }
+
 
   public Integer delete(String tenantID, byte[] start, byte[] end, Notifier notifier) {
     Integer count = this.db.run(context -> {
@@ -483,11 +470,14 @@ public class EtcdRecordLayer {
 
     RecordMetaData recordMetada = createEtcdRecordMetadata();
 
-    return FDBRecordStore.newBuilder()
+    // Helper func
+    Function<FDBRecordContext, FDBRecordStore> recordStoreProvider = context2 -> FDBRecordStore.newBuilder()
       .setMetaDataProvider(recordMetada)
       .setContext(context)
       .setKeySpacePath(path)
       .createOrOpen();
+
+    return recordStoreProvider.apply(context);
   }
 
   private RecordMetaData createEtcdRecordMetadata() {
