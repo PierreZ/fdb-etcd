@@ -4,7 +4,6 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.KVGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
 import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordLayer;
 import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Promise;
@@ -21,12 +20,10 @@ import java.util.stream.Stream;
  */
 public class KVService extends KVGrpc.KVVertxImplBase {
 
-  private final Notifier notifier;
   private final EtcdRecordLayer recordLayer;
 
-  public KVService(EtcdRecordLayer recordLayer, Notifier notifier) {
+  public KVService(EtcdRecordLayer recordLayer) {
     this.recordLayer = recordLayer;
-    this.notifier = notifier;
   }
 
   /**
@@ -57,7 +54,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
     }
 
     try {
-      put = this.recordLayer.put(tenantId, ProtoUtils.from(request), notifier);
+      put = this.recordLayer.put(tenantId, ProtoUtils.from(request));
     } catch (InvalidProtocolBufferException e) {
       response.fail(e);
       return;
@@ -165,7 +162,7 @@ public class KVService extends KVGrpc.KVVertxImplBase {
     Integer count = this.recordLayer.delete(
       tenantId,
       request.getKey().toByteArray(),
-      request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray(), notifier);
+      request.getRangeEnd().isEmpty() ? request.getKey().toByteArray() : request.getRangeEnd().toByteArray());
     response.complete(EtcdIoRpcProto.DeleteRangeResponse.newBuilder().setDeleted(count.longValue()).build());
   }
 

@@ -1,16 +1,21 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
 import com.apple.foundationdb.record.EvaluationContext;
+import com.apple.foundationdb.record.ExecuteProperties;
 import com.apple.foundationdb.record.FunctionNames;
+import com.apple.foundationdb.record.IndexScanType;
 import com.apple.foundationdb.record.IsolationLevel;
 import com.apple.foundationdb.record.RecordMetaData;
 import com.apple.foundationdb.record.RecordMetaDataBuilder;
+import com.apple.foundationdb.record.ScanProperties;
+import com.apple.foundationdb.record.TupleRange;
 import com.apple.foundationdb.record.metadata.Index;
 import com.apple.foundationdb.record.metadata.IndexAggregateFunction;
 import com.apple.foundationdb.record.metadata.IndexTypes;
 import com.apple.foundationdb.record.metadata.Key;
 import com.apple.foundationdb.record.metadata.expressions.EmptyKeyExpression;
 import com.apple.foundationdb.record.metadata.expressions.GroupingKeyExpression;
+import com.apple.foundationdb.record.metadata.expressions.VersionKeyExpression;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
@@ -23,10 +28,10 @@ import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpacePath
 import com.apple.foundationdb.record.query.RecordQuery;
 import com.apple.foundationdb.record.query.expressions.Query;
 import com.apple.foundationdb.tuple.Tuple;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import etcdserverpb.EtcdIoRpcProto;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
 import mvccpb.EtcdIoKvProto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,9 +40,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 import static com.apple.foundationdb.record.TupleRange.ALL;
@@ -52,6 +59,9 @@ public class EtcdRecordLayer {
     "index-version-per-key",
     Key.Expressions.field("version").groupBy(Key.Expressions.field("key")),
     IndexTypes.MAX_EVER_LONG);
+
+  protected static final Index VERSIONSTAMP_INDEX = new Index("kv-globalVersion", VersionKeyExpression.VERSION, IndexTypes.VERSION);
+
   private static final Logger LOGGER = LoggerFactory.getLogger(EtcdRecordLayer.class);
   private final FDBDatabase db;
   private final KeySpace keySpace = new KeySpace(
@@ -140,7 +150,7 @@ public class EtcdRecordLayer {
   }
 
 
-  public EtcdRecord.KeyValue put(String tenantID, EtcdRecord.KeyValue record, Notifier notifier) {
+  public EtcdRecord.KeyValue put(String tenantID, EtcdRecord.KeyValue record) {
     return db.run(context -> {
       FDBRecordStore fdbRecordStore = createFDBRecordStore(context, tenantID);
 
@@ -166,65 +176,20 @@ public class EtcdRecordLayer {
       fdbRecordStore.saveRecord(fixedRecord);
       LOGGER.trace("successfully put record {}", fixedRecord.toString());
 
-      // checking if we have a Watch underneath
-      RecordQuery watchQuery = createWatchQuery(fixedRecord.getKey().toByteArray());
-
-      List<EtcdRecord.Watch> watches = fdbRecordStore.executeQuery(watchQuery)
-        .map(queriedRecord -> EtcdRecord.Watch.newBuilder()
-          .mergeFrom(queriedRecord.getRecord()).build())
-        .asList().join();
-
-      LOGGER.info("Found {} watches", watches.size());
-
-      if (watches.size() > 0) {
-        watches.forEach(w -> {
-          LOGGER.debug("found a matching watch {}", w);
-          EtcdIoKvProto.Event event = EtcdIoKvProto.Event.newBuilder()
-            .setType(EtcdIoKvProto.Event.EventType.PUT)
-            .setKv(EtcdIoKvProto.KeyValue.newBuilder()
-              .setKey(fixedRecord.getKey())
-              .setValue(fixedRecord.getValue())
-              .setLease(fixedRecord.getLease())
-              .setModRevision(fixedRecord.getModRevision())
-              .setVersion(fixedRecord.getModRevision())
-              .build())
-            .build();
-
-          if (notifier != null) {
-            notifier.publish(tenantID, w.getWatchId(), event);
-          }
-
-        });
-      } else {
-        LOGGER.warn("found no matching watch");
-      }
-
       return fixedRecord;
     });
   }
 
-  private RecordQuery createWatchQuery(byte[] key) {
+  private RecordQuery createWatchQuery(long revision) {
     return RecordQuery
       .newBuilder()
-      .setRecordType("Watch")
+      .setRecordType("KeyValue")
       .setFilter(
-        Query.or(
-          // watch a single key
-          Query.and(
-            Query.field("range_end").isNull(),
-            Query.field("key").equalsValue(key)
-          ),
-          // watching over a range
-          Query.and(
-            Query.field("key").lessThanOrEquals(key),
-            Query.field("range_end").greaterThanOrEquals(key)
-          )
-        )
+        Query.version().greaterThan(revision)
       ).build();
   }
 
-
-  public Integer delete(String tenantID, byte[] start, byte[] end, Notifier notifier) {
+  public Integer delete(String tenantID, byte[] start, byte[] end) {
     Integer count = this.db.run(context -> {
       LOGGER.trace("deleting between {} and {}", start, end);
       FDBRecordStore fdbRecordStore = createFDBRecordStore(context, tenantID);
@@ -248,33 +213,6 @@ public class EtcdRecordLayer {
           .map(record -> {
             record = record.toBuilder().setIsDeleted(true).setModRevision(context.getReadVersion()).build();
             fdbRecordStore.saveRecord(record);
-            return record;
-          })
-          // TODO: this may fall down to the 5s limit... We should change the overall architecture
-          .map(record -> {
-            RecordQuery watchQuery = createWatchQuery(record.getKey().toByteArray());
-            fdbRecordStore
-              .executeQuery(watchQuery)
-              .map(queriedRecord -> EtcdRecord.Watch.newBuilder()
-                .mergeFrom(queriedRecord.getRecord()).build())
-              .forEach(w -> {
-
-                LOGGER.debug("found a matching watch {}", w);
-                EtcdIoKvProto.Event event = EtcdIoKvProto.Event.newBuilder()
-                  .setType(EtcdIoKvProto.Event.EventType.DELETE)
-                  .setKv(EtcdIoKvProto.KeyValue.newBuilder()
-                    .setKey(record.getKey())
-                    .setValue(record.getValue())
-                    .setLease(record.getLease())
-                    .setModRevision(record.getModRevision())
-                    .setVersion(record.getModRevision())
-                    .build())
-                  .build();
-
-                if (notifier != null) {
-                  notifier.publish(tenantID, w.getWatchId(), event);
-                }
-              });
             return record;
           })
           .getCount()
@@ -419,19 +357,19 @@ public class EtcdRecordLayer {
     LOGGER.trace("deleted {} records with lease {}", count, leaseID);
   }
 
-  public void put(String tenantID, EtcdIoRpcProto.WatchCreateRequest createRequest) {
-    LOGGER.debug("storing watch {}", createRequest);
+  public long put(String tenantID, EtcdIoRpcProto.WatchCreateRequest watchCreateRequest) {
+    LOGGER.debug("storing watch {}", watchCreateRequest);
 
     EtcdRecord.Watch record = EtcdRecord.Watch.newBuilder()
-      .setKey(createRequest.getKey())
-      .setRangeEnd(createRequest.getRangeEnd())
-      .setWatchId(createRequest.getWatchId())
+      .setKey(watchCreateRequest.getKey())
+      .setRangeEnd(watchCreateRequest.getRangeEnd())
+      .setWatchId(watchCreateRequest.getWatchId())
       .build();
 
-    db.run(context -> {
+    return db.run(context -> {
       FDBRecordStore recordStore = createFDBRecordStore(context, tenantID);
       recordStore.saveRecord(record);
-      return null;
+      return context.getReadVersion();
     });
   }
 
@@ -441,6 +379,68 @@ public class EtcdRecordLayer {
       recordStore.deleteRecord(Tuple.from(watchId));
       return null;
     });
+  }
+
+  public LatestOperations retrieveLatestOperations(String tenantId, long lastCommitedVersion) {
+    AtomicLong readVersion = new AtomicLong();
+    List<EtcdIoKvProto.Event> events = db.run(context -> {
+      FDBRecordStore recordStore = createFDBRecordStore(context, tenantId);
+
+      readVersion.set(context.getReadVersion());
+      return runWatchQuery(recordStore, createWatchQuery(lastCommitedVersion));
+    });
+
+    return new LatestOperations(readVersion.get(), events);
+  }
+
+
+  private List<EtcdIoKvProto.Event> runWatchQuery(FDBRecordStore fdbRecordStore, RecordQuery query) {
+
+    long now = System.currentTimeMillis();
+    // this returns an asynchronous cursor over the results of our query
+    return fdbRecordStore
+      // this returns an asynchronous cursor over the results of our query
+      .executeQuery(query, null, ExecuteProperties.newBuilder().setReturnedRowLimit(1000).build())
+      .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
+        .mergeFrom(queriedRecord.getRecord()).build())
+      // filter according to the lease
+      .filter(record -> filterRecordWithExpiredLease(now, record, fdbRecordStore))
+      .map(record -> {
+        LOGGER.trace("found a record to forward to Watcher: {}", record);
+        EtcdIoKvProto.Event.EventType eventType = record.getIsDeleted() ? EtcdIoKvProto.Event.EventType.DELETE : EtcdIoKvProto.Event.EventType.PUT;
+        try {
+          return EtcdIoKvProto.Event.newBuilder()
+            .setType(eventType)
+            .setKv(EtcdIoKvProto.KeyValue.newBuilder().mergeFrom(record.toByteArray()).build()).build();
+        } catch (InvalidProtocolBufferException e) {
+          e.printStackTrace();
+          return null;
+        }
+      })
+      .filter(Objects::nonNull)
+      .asList().join();
+  }
+
+  private Boolean filterRecordWithExpiredLease(long now, EtcdRecord.KeyValue record, FDBRecordStore fdbRecordStore) {
+    if (record.getLease() == 0) {
+      // no lease
+      return true;
+    }
+    // the record has a lease, retrieve it
+    FDBStoredRecord<Message> leaseMsg = fdbRecordStore
+      .loadRecord(Tuple.from(record.getLease()));
+    if (leaseMsg == null) {
+      LOGGER.debug("record '{}' has a lease '{}' that can not be found, filtering",
+        record.getKey().toStringUtf8(), record.getLease());
+      return false;
+    }
+    EtcdRecord.Lease lease = EtcdRecord.Lease.newBuilder().mergeFrom(leaseMsg.getRecord()).build();
+    if (now > lease.getInsertTimestamp() + lease.getTTL() * 1000) {
+      LOGGER.debug("record '{}' has a lease '{}' that has expired, filtering",
+        record.getKey().toStringUtf8(), record.getLease());
+      return false;
+    }
+    return true;
   }
 
   private List<EtcdRecord.KeyValue> runQuery(FDBRecordStore fdbRecordStore, FDBRecordContext context, RecordQuery query) {
@@ -453,28 +453,8 @@ public class EtcdRecordLayer {
       .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
         .mergeFrom(queriedRecord.getRecord()).build())
       // filter according to the lease
-      .filter(record -> {
-        if (record.getLease() == 0) {
-          // no lease
-          return true;
-        }
-        // the record has a lease, retrieve it
-        FDBStoredRecord<Message> leaseMsg = fdbRecordStore
-          .loadRecord(Tuple.from(record.getLease()));
-        if (leaseMsg == null) {
-          LOGGER.debug("record '{}' has a lease '{}' that can not be found, filtering",
-            record.getKey().toStringUtf8(), record.getLease());
-          return false;
-        }
-        EtcdRecord.Lease lease = EtcdRecord.Lease.newBuilder().mergeFrom(leaseMsg.getRecord()).build();
-        if (now > lease.getInsertTimestamp() + lease.getTTL() * 1000) {
-          LOGGER.debug("record '{}' has a lease '{}' that has expired, filtering",
-            record.getKey().toStringUtf8(), record.getLease());
-          return false;
-        }
-
-        return true;
-      }).asList().join();
+      .filter(record -> filterRecordWithExpiredLease(now, record, fdbRecordStore))
+      .asList().join();
   }
 
   public FDBRecordStore createFDBRecordStore(FDBRecordContext context, String tenant) {
@@ -552,8 +532,12 @@ public class EtcdRecordLayer {
     // add an index to easily retrieve the max version for a given key, instead of scanning
     metadataBuilder.addIndex("KeyValue", INDEX_VERSION_PER_KEY);
 
+    // keep tracks of keyvalue versionstamp
+    metadataBuilder.addIndex("KeyValue", VERSIONSTAMP_INDEX);
+
     // add a global index that will count all records and updates
     metadataBuilder.addUniversalIndex(COUNT_INDEX);
   }
+
 
 }

@@ -1,27 +1,35 @@
 package fr.pierrezemb.fdb.layer.etcd.grpc;
 
+import com.google.protobuf.InvalidProtocolBufferException;
 import etcdserverpb.EtcdIoRpcProto;
 import etcdserverpb.WatchGrpc;
-import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
+import fr.pierrezemb.fdb.layer.etcd.WatchVerticle;
 import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordLayer;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
+import io.vertx.core.Verticle;
+import io.vertx.core.Vertx;
+import mvccpb.EtcdIoKvProto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
 
 public class WatchService extends WatchGrpc.WatchImplBase {
   private static final Logger log = LoggerFactory.getLogger(WatchService.class);
-  private final Notifier notifier;
   private final EtcdRecordLayer recordLayer;
   private final Random random;
+  private final Vertx vertx;
+  private Map<String, Verticle> verticleMap;
 
-  public WatchService(EtcdRecordLayer etcdRecordLayer, Notifier notifier) {
+  public WatchService(EtcdRecordLayer etcdRecordLayer, Vertx vertx) {
+    this.vertx = vertx;
     this.recordLayer = etcdRecordLayer;
-    this.notifier = notifier;
     random = new Random(System.currentTimeMillis());
+    verticleMap = new HashMap<>();
   }
 
   @Override
@@ -78,11 +86,23 @@ public class WatchService extends WatchGrpc.WatchImplBase {
 
   private void handleCreateRequest(EtcdIoRpcProto.WatchCreateRequest createRequest, String tenantId, StreamObserver<EtcdIoRpcProto.WatchResponse> responseObserver) {
 
-    this.recordLayer.put(tenantId, createRequest);
+    long commitVersion = this.recordLayer.put(tenantId, createRequest);
     log.info("successfully registered new Watch");
-    notifier.watch(tenantId, createRequest.getWatchId(), event -> {
-      log.info("inside WatchService");
+
+    String address = tenantId + createRequest.getWatchId();
+
+    WatchVerticle verticle = new WatchVerticle(tenantId, createRequest.getWatchId(), recordLayer, commitVersion);
+    vertx.deployVerticle(verticle);
+    this.verticleMap.put(address, verticle);
+
+    // and then watch for events
+    this.vertx.eventBus().consumer(address, message -> {
+      if (!(message.body() instanceof byte[])) {
+        return;
+      }
+
       try {
+        EtcdIoKvProto.Event event = EtcdIoKvProto.Event.newBuilder().mergeFrom((byte[]) message.body()).build();
         responseObserver
           .onNext(EtcdIoRpcProto.WatchResponse.newBuilder()
             .addEvents(event)
@@ -93,8 +113,9 @@ public class WatchService extends WatchGrpc.WatchImplBase {
           log.warn("connection was closed");
           return;
         }
-
         log.error("cought an error writing response: {}", e.getMessage());
+      } catch (InvalidProtocolBufferException e) {
+        log.warn("cannot deserialize, skipping");
       }
     });
   }
