@@ -6,13 +6,12 @@ import java.util.List;
 
 public class LatestOperations {
   public long readVersion;
+  public List<EtcdIoKvProto.Event> events;
 
   public LatestOperations(long readVersion, List<EtcdIoKvProto.Event> events) {
     this.readVersion = readVersion;
     this.events = events;
   }
-
-  public List<EtcdIoKvProto.Event> events;
 }
 
 

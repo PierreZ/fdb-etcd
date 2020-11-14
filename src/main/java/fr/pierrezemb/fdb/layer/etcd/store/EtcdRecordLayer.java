@@ -3,12 +3,9 @@ package fr.pierrezemb.fdb.layer.etcd.store;
 import com.apple.foundationdb.record.EvaluationContext;
 import com.apple.foundationdb.record.ExecuteProperties;
 import com.apple.foundationdb.record.FunctionNames;
-import com.apple.foundationdb.record.IndexScanType;
 import com.apple.foundationdb.record.IsolationLevel;
 import com.apple.foundationdb.record.RecordMetaData;
 import com.apple.foundationdb.record.RecordMetaDataBuilder;
-import com.apple.foundationdb.record.ScanProperties;
-import com.apple.foundationdb.record.TupleRange;
 import com.apple.foundationdb.record.metadata.Index;
 import com.apple.foundationdb.record.metadata.IndexAggregateFunction;
 import com.apple.foundationdb.record.metadata.IndexTypes;
@@ -20,6 +17,7 @@ import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStore;
+import com.apple.foundationdb.record.provider.foundationdb.FDBRecordVersion;
 import com.apple.foundationdb.record.provider.foundationdb.FDBStoredRecord;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.DirectoryLayerDirectory;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpace;
@@ -27,6 +25,7 @@ import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpaceDire
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpacePath;
 import com.apple.foundationdb.record.query.RecordQuery;
 import com.apple.foundationdb.record.query.expressions.Query;
+import com.apple.foundationdb.record.query.expressions.QueryComponent;
 import com.apple.foundationdb.tuple.Tuple;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
@@ -180,12 +179,23 @@ public class EtcdRecordLayer {
     });
   }
 
-  private RecordQuery createWatchQuery(long revision) {
+  private RecordQuery createWatchQuery(long revision, QueryComponent keyQueryFilter) {
+
+    FDBRecordVersion lowBoundary = FDBRecordVersion.lastInDBVersion(revision);
+
+    LOGGER.trace("searching for {} with version > {}", keyQueryFilter, revision);
     return RecordQuery
       .newBuilder()
       .setRecordType("KeyValue")
+      .setSort(VersionKeyExpression.VERSION)
       .setFilter(
-        Query.version().greaterThan(revision)
+        Query.and(
+          // validate key or keyRange directly at query
+          keyQueryFilter,
+          // validate that commitVersion is greater than the last seen
+          Query.version().greaterThan(lowBoundary),
+          // validate that we are not seeing the write to flag compaction on an old version of a key
+          Query.field("remove_during_compaction").isNull())
       ).build();
   }
 
@@ -366,11 +376,15 @@ public class EtcdRecordLayer {
       .setWatchId(watchCreateRequest.getWatchId())
       .build();
 
-    return db.run(context -> {
+    db.run(context -> {
       FDBRecordStore recordStore = createFDBRecordStore(context, tenantID);
       recordStore.saveRecord(record);
-      return context.getReadVersion();
+      return null;
     });
+
+    // TODO: find a cleaner way to retrieve a readVersion.
+    // I tried retrieving commitVersion after commit above but it is failing
+    return db.run(FDBRecordContext::getReadVersion);
   }
 
   public void deleteWatch(String tenantID, long watchId) {
@@ -381,32 +395,37 @@ public class EtcdRecordLayer {
     });
   }
 
-  public LatestOperations retrieveLatestOperations(String tenantId, long lastCommitedVersion) {
+  public LatestOperations retrieveLatestOperations(String tenantId, long lastCommitedVersion, QueryComponent keyQueryFilter) {
     AtomicLong readVersion = new AtomicLong();
     List<EtcdIoKvProto.Event> events = db.run(context -> {
       FDBRecordStore recordStore = createFDBRecordStore(context, tenantId);
 
       readVersion.set(context.getReadVersion());
-      return runWatchQuery(recordStore, createWatchQuery(lastCommitedVersion));
+      return runWatchQuery(recordStore, createWatchQuery(lastCommitedVersion, keyQueryFilter), lastCommitedVersion);
     });
 
     return new LatestOperations(readVersion.get(), events);
   }
 
 
-  private List<EtcdIoKvProto.Event> runWatchQuery(FDBRecordStore fdbRecordStore, RecordQuery query) {
+  private List<EtcdIoKvProto.Event> runWatchQuery(FDBRecordStore fdbRecordStore, RecordQuery query, long lastCommitedVersion) {
 
     long now = System.currentTimeMillis();
     // this returns an asynchronous cursor over the results of our query
     return fdbRecordStore
       // this returns an asynchronous cursor over the results of our query
       .executeQuery(query, null, ExecuteProperties.newBuilder().setReturnedRowLimit(1000).build())
-      .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
-        .mergeFrom(queriedRecord.getRecord()).build())
+      .map(queriedRecord -> {
+        EtcdRecord.KeyValue record = EtcdRecord.KeyValue.newBuilder()
+          .mergeFrom(queriedRecord.getRecord()).build();
+        if (queriedRecord.getVersion() != null) {
+          LOGGER.trace("found a record to forward to Watcher: {}. Commit version: {} > {}", record, queriedRecord.getVersion().getDBVersion(), lastCommitedVersion);
+        }
+        return record;
+      })
       // filter according to the lease
       .filter(record -> filterRecordWithExpiredLease(now, record, fdbRecordStore))
       .map(record -> {
-        LOGGER.trace("found a record to forward to Watcher: {}", record);
         EtcdIoKvProto.Event.EventType eventType = record.getIsDeleted() ? EtcdIoKvProto.Event.EventType.DELETE : EtcdIoKvProto.Event.EventType.PUT;
         try {
           return EtcdIoKvProto.Event.newBuilder()

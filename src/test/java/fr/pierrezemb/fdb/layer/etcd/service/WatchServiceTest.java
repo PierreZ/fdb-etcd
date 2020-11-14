@@ -63,7 +63,6 @@ public class WatchServiceTest {
     final ByteSequence value = randomByteSequence();
     final AtomicReference<WatchResponse> ref = new AtomicReference<>();
 
-
     try (Watcher watcher = client.getWatchClient().watch(key, response -> {
       ref.set(response);
       latch.countDown();
@@ -98,7 +97,7 @@ public class WatchServiceTest {
       latch.countDown();
     })) {
 
-      Thread.sleep(500);
+      Thread.sleep(1000);
 
       client.getKVClient().put(key, value).get();
       latch.await(4, TimeUnit.SECONDS);
@@ -115,21 +114,27 @@ public class WatchServiceTest {
   @Test
   @Order(3)
   public void testWatchRangeOnDelete() throws Exception {
-    final ByteSequence key = ByteSequence.from("b", Charset.defaultCharset());
-    final CountDownLatch latch = new CountDownLatch(1);
+    final ByteSequence key = ByteSequence.from("g", Charset.defaultCharset());
+    final ByteSequence value = randomByteSequence();
+    final CountDownLatch latch = new CountDownLatch(2);
     final AtomicReference<WatchResponse> ref = new AtomicReference<>();
 
-    try (Watcher watcher = client.getWatchClient().watch(ByteSequence.from("a", Charset.defaultCharset()), WatchOption.newBuilder()
-      .withRange(ByteSequence.from("c", Charset.defaultCharset()))
+    client.getKVClient().put(key, value).get();
+
+    try (Watcher watcher = client.getWatchClient().watch(ByteSequence.from("f", Charset.defaultCharset()), WatchOption.newBuilder()
+      .withRange(ByteSequence.from("h", Charset.defaultCharset()))
       .build(), response -> {
       ref.set(response);
       latch.countDown();
     })) {
 
-      Thread.sleep(500);
+      Thread.sleep(1000);
 
+      System.out.println("start deleting");
       client.getKVClient().delete(key).get();
+      System.out.println("deleted");
       latch.await(4, TimeUnit.SECONDS);
+      System.out.println("checking");
       watcher.close();
 
       assertNotNull(ref.get());

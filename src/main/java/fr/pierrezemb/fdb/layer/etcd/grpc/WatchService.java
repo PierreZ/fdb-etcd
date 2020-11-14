@@ -23,7 +23,7 @@ public class WatchService extends WatchGrpc.WatchImplBase {
   private final EtcdRecordLayer recordLayer;
   private final Random random;
   private final Vertx vertx;
-  private Map<String, Verticle> verticleMap;
+  private final Map<String, Verticle> verticleMap;
 
   public WatchService(EtcdRecordLayer etcdRecordLayer, Vertx vertx) {
     this.vertx = vertx;
@@ -91,7 +91,7 @@ public class WatchService extends WatchGrpc.WatchImplBase {
 
     String address = tenantId + createRequest.getWatchId();
 
-    WatchVerticle verticle = new WatchVerticle(tenantId, createRequest.getWatchId(), recordLayer, commitVersion);
+    WatchVerticle verticle = new WatchVerticle(tenantId, createRequest.getWatchId(), recordLayer, commitVersion, createRequest.getKey(), createRequest.getRangeEnd());
     vertx.deployVerticle(verticle);
     this.verticleMap.put(address, verticle);
 
@@ -105,12 +105,13 @@ public class WatchService extends WatchGrpc.WatchImplBase {
         EtcdIoKvProto.Event event = EtcdIoKvProto.Event.newBuilder().mergeFrom((byte[]) message.body()).build();
         responseObserver
           .onNext(EtcdIoRpcProto.WatchResponse.newBuilder()
+            .setHeader(EtcdIoRpcProto.ResponseHeader.newBuilder().build())
             .addEvents(event)
             .setWatchId(createRequest.getWatchId())
             .build());
       } catch (StatusRuntimeException e) {
         if (e.getStatus().equals(Status.CANCELLED)) {
-          log.warn("connection was closed");
+          log.warn("connection was closed, closing verticle");
           return;
         }
         log.error("cought an error writing response: {}", e.getMessage());

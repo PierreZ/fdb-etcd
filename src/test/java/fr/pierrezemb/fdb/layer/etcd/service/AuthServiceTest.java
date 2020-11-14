@@ -35,7 +35,7 @@ public class AuthServiceTest {
   private static final ByteSequence SAMPLE_VALUE_2 = ByteSequence.from("sample_value2".getBytes());
   private static final ByteSequence SAMPLE_KEY_3 = ByteSequence.from("sample_key3".getBytes());
 
-  private FoundationDBContainer container = new FoundationDBContainer();
+  private final FoundationDBContainer container = new FoundationDBContainer();
   private File clusterFile;
 
   @BeforeAll
