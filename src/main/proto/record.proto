@@ -21,6 +21,14 @@ message KeyValue {
   // When the attached lease expires, the key will be deleted.
   // If lease is 0, then no lease is attached to the key.
   int64 lease = 6;
+
+  // these are custom variables needed for the RecordLayer:
+
+  // flag whenever record is deleted. Will be removed during compaction
+  bool is_deleted = 991;
+
+  // flag whenever record needs to be removed during compaction
+  bool remove_during_compaction = 992;
 }
 
 // this message represent a Lease

@@ -79,30 +79,36 @@ public class EtcdRecordLayer {
     LOGGER.trace("retrieving record {} for revision {}", Arrays.toString(key), revision);
     List<EtcdRecord.KeyValue> records = db.run(context -> {
       FDBRecordStore fdbRecordStore = createFDBRecordStore(context, tenantID);
-
-      // creating the query
-      RecordQuery query = RecordQuery.newBuilder()
-        .setRecordType("KeyValue")
-        .setFilter(
-          revision == 0 ?
-            // no revision
-            Query.field("key").equalsValue(key) :
-            // with revision
-            Query.and(
-              Query.field("key").equalsValue(key),
-              Query.field("mod_revision").lessThanOrEquals(revision))
-        ).build();
-
-      return runQuery(fdbRecordStore, context, query);
+      return runQuery(fdbRecordStore, context, createGetQuery(key, revision));
     });
 
     if (records.size() == 0) {
       LOGGER.warn("cannot find any record for key {}", key);
       return null;
     }
+    LOGGER.trace("found {} records for key {}", records.size(), key);
 
     // return the highest version for a given key
     return records.stream().max(Comparator.comparing(EtcdRecord.KeyValue::getVersion)).get();
+  }
+
+  private RecordQuery createGetQuery(byte[] key, long revision) {
+    // creating the query
+    return RecordQuery.newBuilder()
+      .setRecordType("KeyValue")
+      .setFilter(
+        revision == 0 ?
+          // no revision
+          Query.and(
+            Query.field("key").equalsValue(key),
+            Query.field("is_deleted").isNull()
+          ) :
+          // with revision
+          Query.and(
+            Query.field("key").equalsValue(key),
+            Query.field("is_deleted").isNull(),
+            Query.field("mod_revision").lessThanOrEquals(revision))
+      ).build();
   }
 
   public List<EtcdRecord.KeyValue> scan(String tenant, byte[] start, byte[] end) {
@@ -119,11 +125,13 @@ public class EtcdRecordLayer {
           revision == 0 ?
             Query.and(
               Query.field("key").greaterThanOrEquals(start),
-              Query.field("key").lessThanOrEquals(end)) :
+              Query.field("key").lessThanOrEquals(end),
+              Query.field("is_deleted").isNull()) :
             Query.and(
               Query.and(
                 Query.field("key").greaterThanOrEquals(start),
                 Query.field("key").lessThanOrEquals(end)),
+              Query.field("is_deleted").isNull(),
               Query.field("mod_revision").lessThanOrEquals(revision))
         ).build();
 
@@ -136,26 +144,27 @@ public class EtcdRecordLayer {
     return db.run(context -> {
       FDBRecordStore fdbRecordStore = createFDBRecordStore(context, tenantID);
 
-      // retrieve version using an index
-      IndexAggregateFunction function = new IndexAggregateFunction(
-        FunctionNames.MAX_EVER, INDEX_VERSION_PER_KEY.getRootExpression(), INDEX_VERSION_PER_KEY.getName());
-      Tuple maxResult = fdbRecordStore
-        .evaluateAggregateFunction(
-          Collections.singletonList("KeyValue"), function,
-          Key.Evaluated.concatenate(record.getKey().toByteArray()), IsolationLevel.SERIALIZABLE)
-        .join();
-
-      long version = null == maxResult ? 1 : maxResult.getLong(0) + 1;
+      // checking if we have a previous version of the key
+      long version = 1;
+      long createRevision = context.getReadVersion();
+      List<EtcdRecord.KeyValue> previousVersions = runQuery(fdbRecordStore, context, createGetQuery(record.getKey().toByteArray(), 0));
+      if (previousVersions.size() == 1) {
+        EtcdRecord.KeyValue previousVersion = previousVersions.get(0);
+        version = previousVersion.getVersion() + 1;
+        createRevision = previousVersion.getCreateRevision();
+        LOGGER.trace("found an old version {} for key {}, flagging it for compaction", previousVersion.getVersion(), previousVersion.getKey());
+        fdbRecordStore.saveRecord(previousVersion.toBuilder().setRemoveDuringCompaction(true).build());
+      }
 
       EtcdRecord.KeyValue fixedRecord = record.toBuilder()
         .setVersion(version)
-        .setCreateRevision(context.getReadVersion())
+        .setCreateRevision(createRevision)
         .setModRevision(context.getReadVersion()) // using read version as mod revision
+        .setIsDeleted(false)
         .build();
 
-      LOGGER.trace("putting record key '{}' in version {}", fixedRecord.getKey().toStringUtf8(), version);
       fdbRecordStore.saveRecord(fixedRecord);
-      LOGGER.trace("successfully put record {} in version {}", fixedRecord.toString(), fixedRecord.getVersion());
+      LOGGER.trace("successfully put record {}", fixedRecord.toString());
 
       // checking if we have a Watch underneath
       RecordQuery watchQuery = createWatchQuery(fixedRecord.getKey().toByteArray());
@@ -237,7 +246,8 @@ public class EtcdRecordLayer {
           })
           // delete records
           .map(record -> {
-            fdbRecordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion()));
+            record = record.toBuilder().setIsDeleted(true).setModRevision(context.getReadVersion()).build();
+            fdbRecordStore.saveRecord(record);
             return record;
           })
           // TODO: this may fall down to the 5s limit... We should change the overall architecture
@@ -281,18 +291,23 @@ public class EtcdRecordLayer {
 
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
-        .setFilter(Query.field("mod_revision").lessThanOrEquals(revision)).build();
+        .setFilter(
+          Query.or(
+            Query.and(
+              Query.field("remove_during_compaction").equalsValue(true),
+              Query.field("mod_revision").lessThanOrEquals(revision)
+            ),
+            Query.field("is_deleted").equalsValue(true)
+          )).build();
 
       return fdbRecordStore
         // this returns an asynchronous cursor over the results of our query
         .executeQuery(query)
-        .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
-          .mergeFrom(queriedRecord.getRecord()).build())
         .map(r -> {
-          LOGGER.trace("found a record to delete: {}", r);
+          LOGGER.trace("found a record to compact: {}", r.getPrimaryKey());
           return r;
         })
-        .map(record -> fdbRecordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion())))
+        .map(record -> fdbRecordStore.deleteRecord(record.getPrimaryKey()))
         .getCount()
         .join();
     });
@@ -321,7 +336,6 @@ public class EtcdRecordLayer {
     }).join();
 
     LOGGER.info("we have around {} ETCD records", stat);
-
     return stat;
   }
 
@@ -528,6 +542,12 @@ public class EtcdRecordLayer {
 
     metadataBuilder.addIndex("KeyValue", new Index(
       "keyvalue-modversion", Key.Expressions.field("mod_revision"), IndexTypes.VALUE));
+
+    metadataBuilder.addIndex("KeyValue", new Index(
+      "keyvalue-deleted", Key.Expressions.field("is_deleted"), IndexTypes.VALUE));
+
+    metadataBuilder.addIndex("KeyValue", new Index(
+      "keyvalue-compaction-index", Key.Expressions.field("remove_during_compaction"), IndexTypes.VALUE));
 
     // add an index to easily retrieve the max version for a given key, instead of scanning
     metadataBuilder.addIndex("KeyValue", INDEX_VERSION_PER_KEY);

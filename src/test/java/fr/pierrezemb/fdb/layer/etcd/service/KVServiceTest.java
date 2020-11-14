@@ -38,6 +38,8 @@ import static fr.pierrezemb.fdb.layer.etcd.TestUtil.bytesOf;
 import static fr.pierrezemb.fdb.layer.etcd.TestUtil.randomByteSequence;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -80,17 +82,20 @@ public class KVServiceTest {
   @Test
   public void testDelete() throws Exception {
 
-    // cleanup any tests
-    kvClient.delete(ByteSequence.from("s".getBytes()));
+    // cleanup any tests that wrote in the (r, t) range
+    kvClient.delete(ByteSequence.from(
+      "r".getBytes()),
+      DeleteOption.newBuilder().withRange(ByteSequence.from("t".getBytes())).build()).get();
+    System.out.println("cleanup complete");
 
     // Put content so that we actually have something to delete
     testPut();
-
     ByteSequence keyToDelete = SAMPLE_KEY;
 
     // count keys about to delete
     CompletableFuture<GetResponse> getFeature = kvClient.get(keyToDelete);
     GetResponse resp = getFeature.get();
+    assertEquals(1, resp.getKvs().size());
 
     // delete the keys
     CompletableFuture<DeleteResponse> deleteFuture = kvClient.delete(keyToDelete);
@@ -105,10 +110,8 @@ public class KVServiceTest {
   public void testPut() throws Exception {
     CompletableFuture<io.etcd.jetcd.kv.PutResponse> feature = kvClient.put(SAMPLE_KEY, SAMPLE_VALUE);
     PutResponse response = feature.get();
-    assertTrue(response.getHeader() != null);
-    assertTrue(!response.hasPrevKv());
-
-    kvClient.delete(SAMPLE_KEY).get();
+    assertNotNull(response.getHeader());
+    assertFalse(response.hasPrevKv());
   }
 
   @Test
