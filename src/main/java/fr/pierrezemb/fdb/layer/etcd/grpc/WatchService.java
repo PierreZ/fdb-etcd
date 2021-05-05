@@ -34,7 +34,6 @@ public class WatchService extends WatchGrpc.WatchImplBase {
 
   @Override
   public StreamObserver<EtcdIoRpcProto.WatchRequest> watch(StreamObserver<EtcdIoRpcProto.WatchResponse> responseObserver) {
-
     String tenantId = GrpcContextKeys.TENANT_ID_KEY.get();
     if (tenantId == null) {
       throw new RuntimeException("Auth enabled and tenant not found.");

@@ -40,7 +40,6 @@ public class WatchVerticle extends AbstractVerticle {
       );
   }
 
-  @Override
   public void start(Future<Void> startFuture) throws Exception {
     log.trace("starting timer");
     this.timerID = vertx.setTimer(10, id -> {
