@@ -2,8 +2,7 @@ package fr.pierrezemb.fdb.layer.etcd.store;
 
 import com.google.protobuf.ByteString;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
-import org.junit.jupiter.api.AfterAll;
+import fr.pierrezemb.fdb.layer.etcd.AbstractFDBContainer;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -18,16 +17,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class EtcdRecordLayerTest {
+class EtcdRecordLayerTest extends AbstractFDBContainer {
 
   private static final String TENANT = "my-tenant";
-  private final FoundationDBContainer container = new FoundationDBContainer();
   private EtcdRecordLayer recordLayer;
 
   @BeforeAll
   void setUp() throws IOException, InterruptedException, ExecutionException, TimeoutException {
-    container.start();
-    this.recordLayer = new EtcdRecordLayer(container.getClusterFile().getAbsolutePath());
+    this.recordLayer = new EtcdRecordLayer(container.clearAndGetClusterFile().getAbsolutePath());
   }
 
   @Test
@@ -40,7 +37,7 @@ class EtcdRecordLayerTest {
       .newBuilder()
       .setKey(key)
       .setValue(value).build();
-    recordLayer.put(TENANT, request, null);
+    recordLayer.put(TENANT, request);
     EtcdRecord.KeyValue storedRecord = recordLayer.get(TENANT, key.toByteArray());
     assertNotNull("storedRecord is null :(", storedRecord);
     assertArrayEquals("keys are different", key.toByteArray(), storedRecord.getKey().toByteArray());
@@ -52,7 +49,7 @@ class EtcdRecordLayerTest {
       .newBuilder()
       .setKey(key2)
       .setValue(ByteString.copyFromUtf8("tat")).build();
-    recordLayer.put(TENANT, request2, null);
+    recordLayer.put(TENANT, request2);
     EtcdRecord.KeyValue storedRecord2 = recordLayer.get(TENANT, key2.toByteArray());
     assertArrayEquals("keys are different", key2.toByteArray(), storedRecord2.getKey().toByteArray());
     assertArrayEquals("values are different", value.toByteArray(), storedRecord2.getValue().toByteArray());
@@ -65,14 +62,10 @@ class EtcdRecordLayerTest {
     assertEquals("count is bad", 2, count);
 
     // and delete
-    recordLayer.delete(TENANT, "/tot".getBytes(), "/u".getBytes(), null);
+    recordLayer.delete(TENANT, "/tot".getBytes(), "/u".getBytes());
     List<EtcdRecord.KeyValue> scanResult2 = recordLayer.scan(TENANT, "/tot".getBytes(), "/u".getBytes());
     assertEquals(0, scanResult2.size());
 
   }
 
-  @AfterAll
-  void tearsDown() {
-    container.stop();
-  }
 }

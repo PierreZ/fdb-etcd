@@ -1,8 +1,9 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
 import com.google.common.base.Charsets;
-import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
+import fr.pierrezemb.fdb.layer.etcd.AbstractFDBContainer;
 import fr.pierrezemb.fdb.layer.etcd.MainVerticle;
+import fr.pierrezemb.fdb.layer.etcd.PortManager;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
 import io.etcd.jetcd.CloseableClient;
@@ -40,12 +41,12 @@ import static org.junit.Assert.assertTrue;
  */
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class LeaseServiceTest {
+public class LeaseServiceTest extends AbstractFDBContainer {
   private static final ByteSequence KEY = ByteSequence.from("foo", Charsets.UTF_8);
   private static final ByteSequence KEY_2 = ByteSequence.from("foo2", Charsets.UTF_8);
   private static final ByteSequence KEY_3 = ByteSequence.from("foo3", Charsets.UTF_8);
   private static final ByteSequence VALUE = ByteSequence.from("bar", Charsets.UTF_8);
-  private final FoundationDBContainer container = new FoundationDBContainer();
+  public final int port = PortManager.nextFreePort();
   private KV kvClient;
   private Client client;
   private File clusterFile;
@@ -54,22 +55,24 @@ public class LeaseServiceTest {
   @BeforeAll
   void deploy_verticle(Vertx vertx, VertxTestContext testContext) throws IOException, InterruptedException {
 
-    container.start();
-    clusterFile = container.getClusterFile();
+    clusterFile = container.clearAndGetClusterFile();
 
     DeploymentOptions options = new DeploymentOptions()
-      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFile.getAbsolutePath())
+      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFile.getAbsolutePath()).put("listen-port", port)
       );
 
     // deploy verticle
-    vertx.deployVerticle(new MainVerticle(), options, testContext.succeeding(id -> testContext.completeNow()));
+    vertx.deployVerticle(new MainVerticle(), options, testContext.succeeding(id -> {
+      // create client
+      client = Client.builder().endpoints("http://localhost:" + port).build();
+      // uncomment this to test on real etcd
+      // client = Client.builder().endpoints("http://localhost:2379").build();
+      kvClient = client.getKVClient();
+      leaseClient = client.getLeaseClient();
 
-    // create client
-    client = Client.builder().endpoints("http://localhost:8080").build();
-    // uncomment this to test on real etcd
-    // client = Client.builder().endpoints("http://localhost:2379").build();
-    kvClient = client.getKVClient();
-    leaseClient = client.getLeaseClient();
+      testContext.completeNow();
+    }));
+
   }
 
   @Test

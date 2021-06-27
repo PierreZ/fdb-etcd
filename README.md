@@ -1,4 +1,4 @@
-# fdb-etcd ![https://img.shields.io/badge/vert.x-3.8.5-purple.svg](https://img.shields.io/badge/vert.x-3.8.5-purple.svg) ![gradle build](https://github.com/PierreZ/fdb-etcd/workflows/gradle%20build/badge.svg)
+# fdb-etcd ![https://img.shields.io/badge/vert.x-4.0.3-purple.svg](https://img.shields.io/badge/vert.x-3.8.5-purple.svg) ![gradle build](https://github.com/PierreZ/fdb-etcd/workflows/gradle%20build/badge.svg)
 
 An experiment to provide ETCD layer on top of FoundationDB, built with [Record-Layer](https://foundationdb.github.io/fdb-record-layer/) and [Vert.x](https://vertx.io/).
 
@@ -9,13 +9,13 @@ An experiment to provide ETCD layer on top of FoundationDB, built with [Record-L
 * Integrations test using a real FDB spawned with testcontainers and official Java etcd client,
 * Tests are backported from jetcd test cases
 * Supported operations:
-    * put,
-    * get,
-    * scan,
-    * delete,
-    * compact,
-    * leases,
-    * watches,
+  * put,
+  * get,
+  * scan,
+  * delete,
+  * compact,
+  * leases,
+  * watches,
 * ETCD MVCC simulated using FDB's read version
 * multi-tenancy (soon back by the AuthService)
 
@@ -30,20 +30,22 @@ For TODO's, please have a look to the [Github issues](https://github.com/pierrez
 * gradle 6.2.2
 * [FoundationDB Client Packages](https://www.foundationdb.org/download/)
 
-
 ### Gradle cheat-sheet
 
 To launch your tests:
+
 ```
 ./gradlew clean test
 ```
 
 To package your application:
+
 ```
 ./gradlew clean assemble
 ```
 
 To run your application:
+
 ```
 ./gradlew clean run
 ```

@@ -1,6 +1,7 @@
 package fr.pierrezemb.fdb.layer.etcd.store;
 
 import com.apple.foundationdb.record.EvaluationContext;
+import com.apple.foundationdb.record.ExecuteProperties;
 import com.apple.foundationdb.record.FunctionNames;
 import com.apple.foundationdb.record.IsolationLevel;
 import com.apple.foundationdb.record.RecordMetaData;
@@ -11,10 +12,12 @@ import com.apple.foundationdb.record.metadata.IndexTypes;
 import com.apple.foundationdb.record.metadata.Key;
 import com.apple.foundationdb.record.metadata.expressions.EmptyKeyExpression;
 import com.apple.foundationdb.record.metadata.expressions.GroupingKeyExpression;
+import com.apple.foundationdb.record.metadata.expressions.VersionKeyExpression;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabase;
 import com.apple.foundationdb.record.provider.foundationdb.FDBDatabaseFactory;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordContext;
 import com.apple.foundationdb.record.provider.foundationdb.FDBRecordStore;
+import com.apple.foundationdb.record.provider.foundationdb.FDBRecordVersion;
 import com.apple.foundationdb.record.provider.foundationdb.FDBStoredRecord;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.DirectoryLayerDirectory;
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpace;
@@ -22,11 +25,12 @@ import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpaceDire
 import com.apple.foundationdb.record.provider.foundationdb.keyspace.KeySpacePath;
 import com.apple.foundationdb.record.query.RecordQuery;
 import com.apple.foundationdb.record.query.expressions.Query;
+import com.apple.foundationdb.record.query.expressions.QueryComponent;
 import com.apple.foundationdb.tuple.Tuple;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import etcdserverpb.EtcdIoRpcProto;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import fr.pierrezemb.fdb.layer.etcd.notifier.Notifier;
 import mvccpb.EtcdIoKvProto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,9 +39,12 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 
 import static com.apple.foundationdb.record.TupleRange.ALL;
 
@@ -51,6 +58,9 @@ public class EtcdRecordLayer {
     "index-version-per-key",
     Key.Expressions.field("version").groupBy(Key.Expressions.field("key")),
     IndexTypes.MAX_EVER_LONG);
+
+  protected static final Index VERSIONSTAMP_INDEX = new Index("kv-globalVersion", VersionKeyExpression.VERSION, IndexTypes.VERSION);
+
   private static final Logger LOGGER = LoggerFactory.getLogger(EtcdRecordLayer.class);
   private final FDBDatabase db;
   private final KeySpace keySpace = new KeySpace(
@@ -78,14 +88,14 @@ public class EtcdRecordLayer {
     LOGGER.trace("retrieving record {} for revision {}", Arrays.toString(key), revision);
     List<EtcdRecord.KeyValue> records = db.run(context -> {
       FDBRecordStore fdbRecordStore = createFDBRecordStore(context, tenantID);
-      RecordQuery query = createGetQuery(key, revision);
-      return runQuery(fdbRecordStore, context, query);
+      return runQuery(fdbRecordStore, context, createGetQuery(key, revision));
     });
 
     if (records.size() == 0) {
       LOGGER.warn("cannot find any record for key {}", key);
       return null;
     }
+    LOGGER.trace("found {} records for key {}", records.size(), key);
 
     // return the highest version for a given key
     return records.stream().max(Comparator.comparing(EtcdRecord.KeyValue::getVersion)).get();
@@ -98,10 +108,14 @@ public class EtcdRecordLayer {
       .setFilter(
         revision == 0 ?
           // no revision
-          Query.field("key").equalsValue(key) :
+          Query.and(
+            Query.field("key").equalsValue(key),
+            Query.field("is_deleted").isNull()
+          ) :
           // with revision
           Query.and(
             Query.field("key").equalsValue(key),
+            Query.field("is_deleted").isNull(),
             Query.field("mod_revision").lessThanOrEquals(revision))
       ).build();
   }
@@ -120,11 +134,13 @@ public class EtcdRecordLayer {
           revision == 0 ?
             Query.and(
               Query.field("key").greaterThanOrEquals(start),
-              Query.field("key").lessThanOrEquals(end)) :
+              Query.field("key").lessThanOrEquals(end),
+              Query.field("is_deleted").isNull()) :
             Query.and(
               Query.and(
                 Query.field("key").greaterThanOrEquals(start),
                 Query.field("key").lessThanOrEquals(end)),
+              Query.field("is_deleted").isNull(),
               Query.field("mod_revision").lessThanOrEquals(revision))
         ).build();
 
@@ -133,102 +149,57 @@ public class EtcdRecordLayer {
   }
 
 
-  public EtcdRecord.KeyValue put(String tenantID, EtcdRecord.KeyValue record, Notifier notifier) {
+  public EtcdRecord.KeyValue put(String tenantID, EtcdRecord.KeyValue record) {
     return db.run(context -> {
       FDBRecordStore fdbRecordStore = createFDBRecordStore(context, tenantID);
 
-      // retrieve version using an index
-      IndexAggregateFunction function = new IndexAggregateFunction(
-        FunctionNames.MAX_EVER, INDEX_VERSION_PER_KEY.getRootExpression(), INDEX_VERSION_PER_KEY.getName());
-      Tuple maxResult = fdbRecordStore
-        .evaluateAggregateFunction(
-          Collections.singletonList("KeyValue"), function,
-          Key.Evaluated.concatenate(record.getKey().toByteArray()), IsolationLevel.SERIALIZABLE)
-        .join();
-
-      long readVersion = context.getReadVersion();
-      long version = readVersion;
-      long createRevision = readVersion;
-      long modRevision = readVersion;
-
-      // retrieve latest version of the key
-      if (maxResult != null) {
-        RecordQuery query = createGetQuery(record.getKey().toByteArray(), maxResult.getLong(0));
-        List<EtcdRecord.KeyValue> keyValueList = runQuery(fdbRecordStore, context, query);
-        if (keyValueList.size() == 1) {
-          createRevision = keyValueList.get(0).getCreateRevision();
-        }
+      // checking if we have a previous version of the key
+      long version = 1;
+      long createRevision = context.getReadVersion();
+      List<EtcdRecord.KeyValue> previousVersions = runQuery(fdbRecordStore, context, createGetQuery(record.getKey().toByteArray(), 0));
+      if (previousVersions.size() == 1) {
+        EtcdRecord.KeyValue previousVersion = previousVersions.get(0);
+        version = previousVersion.getVersion() + 1;
+        createRevision = previousVersion.getCreateRevision();
+        LOGGER.trace("found an old version {} for key {}, flagging it for compaction", previousVersion.getVersion(), previousVersion.getKey());
+        fdbRecordStore.saveRecord(previousVersion.toBuilder().setRemoveDuringCompaction(true).build());
       }
 
       EtcdRecord.KeyValue fixedRecord = record.toBuilder()
         .setVersion(version)
         .setCreateRevision(createRevision)
-        .setModRevision(modRevision)
+        .setModRevision(context.getReadVersion()) // using read version as mod revision
+        .setIsDeleted(false)
         .build();
 
-      LOGGER.trace("putting record key '{}' in version {}", fixedRecord.getKey().toStringUtf8(), version);
       fdbRecordStore.saveRecord(fixedRecord);
-      LOGGER.trace("successfully put record {} in version {}", fixedRecord.toString(), fixedRecord.getVersion());
-
-      // checking if we have a Watch underneath
-      RecordQuery watchQuery = createWatchQuery(fixedRecord.getKey().toByteArray());
-
-      List<EtcdRecord.Watch> watches = fdbRecordStore.executeQuery(watchQuery)
-        .map(queriedRecord -> EtcdRecord.Watch.newBuilder()
-          .mergeFrom(queriedRecord.getRecord()).build())
-        .asList().join();
-
-      LOGGER.info("Found {} watches", watches.size());
-
-      if (watches.size() > 0) {
-        watches.forEach(w -> {
-          LOGGER.debug("found a matching watch {}", w);
-          EtcdIoKvProto.Event event = EtcdIoKvProto.Event.newBuilder()
-            .setType(EtcdIoKvProto.Event.EventType.PUT)
-            .setKv(EtcdIoKvProto.KeyValue.newBuilder()
-              .setKey(fixedRecord.getKey())
-              .setValue(fixedRecord.getValue())
-              .setLease(fixedRecord.getLease())
-              .setModRevision(fixedRecord.getModRevision())
-              .setVersion(fixedRecord.getModRevision())
-              .build())
-            .build();
-
-          if (notifier != null) {
-            notifier.publish(tenantID, w.getWatchId(), event);
-          }
-
-        });
-      } else {
-        LOGGER.warn("found no matching watch");
-      }
+      LOGGER.trace("successfully put record {}", fixedRecord);
 
       return fixedRecord;
     });
   }
 
-  private RecordQuery createWatchQuery(byte[] key) {
-    LOGGER.info("searching for a watch containing {}", key);
+  private RecordQuery createWatchQuery(long revision, QueryComponent keyQueryFilter) {
+
+    FDBRecordVersion lowBoundary = FDBRecordVersion.lastInDBVersion(revision);
+
+    LOGGER.trace("searching for {} with version > {}", keyQueryFilter, revision);
     return RecordQuery
       .newBuilder()
-      .setRecordType("Watch")
+      .setRecordType("KeyValue")
+      .setSort(VersionKeyExpression.VERSION)
       .setFilter(
-        Query.or(
-          // watch a single key
-          Query.and(
-            Query.field("range_end").isNull(),
-            Query.field("key").equalsValue(key)
-          ),
-          // watching over a range
-          Query.and(
-            Query.field("key").lessThanOrEquals(key),
-            Query.field("range_end").greaterThanOrEquals(key)
-          )
-        )
+        Query.and(
+          // validate key or keyRange directly at query
+          keyQueryFilter,
+          // validate that commitVersion is greater than the last seen
+          Query.version().greaterThan(lowBoundary),
+          // validate that we are not seeing the write to flag compaction on an old version of a key
+          Query.field("remove_during_compaction").isNull())
       ).build();
   }
 
-  public Integer delete(String tenantID, byte[] start, byte[] end, Notifier notifier) {
+  public Integer delete(String tenantID, byte[] start, byte[] end) {
     Integer count = this.db.run(context -> {
       LOGGER.trace("deleting between {} and {}", start, end);
       FDBRecordStore fdbRecordStore = createFDBRecordStore(context, tenantID);
@@ -250,34 +221,8 @@ public class EtcdRecordLayer {
           })
           // delete records
           .map(record -> {
-            fdbRecordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion()));
-            return record;
-          })
-          // TODO: this may fall down to the 5s limit... We should change the overall architecture
-          .map(record -> {
-            RecordQuery watchQuery = createWatchQuery(record.getKey().toByteArray());
-            fdbRecordStore
-              .executeQuery(watchQuery)
-              .map(queriedRecord -> EtcdRecord.Watch.newBuilder()
-                .mergeFrom(queriedRecord.getRecord()).build())
-              .forEach(w -> {
-
-                LOGGER.debug("found a matching watch {}", w);
-                EtcdIoKvProto.Event event = EtcdIoKvProto.Event.newBuilder()
-                  .setType(EtcdIoKvProto.Event.EventType.DELETE)
-                  .setKv(EtcdIoKvProto.KeyValue.newBuilder()
-                    .setKey(record.getKey())
-                    .setValue(record.getValue())
-                    .setLease(record.getLease())
-                    .setModRevision(record.getModRevision())
-                    .setVersion(record.getModRevision())
-                    .build())
-                  .build();
-
-                if (notifier != null) {
-                  notifier.publish(tenantID, w.getWatchId(), event);
-                }
-              });
+            record = record.toBuilder().setIsDeleted(true).setModRevision(context.getReadVersion()).build();
+            fdbRecordStore.saveRecord(record);
             return record;
           })
           .getCount()
@@ -294,18 +239,23 @@ public class EtcdRecordLayer {
 
       RecordQuery query = RecordQuery.newBuilder()
         .setRecordType("KeyValue")
-        .setFilter(Query.field("mod_revision").lessThanOrEquals(revision)).build();
+        .setFilter(
+          Query.or(
+            Query.and(
+              Query.field("remove_during_compaction").equalsValue(true),
+              Query.field("mod_revision").lessThanOrEquals(revision)
+            ),
+            Query.field("is_deleted").equalsValue(true)
+          )).build();
 
       return fdbRecordStore
         // this returns an asynchronous cursor over the results of our query
         .executeQuery(query)
-        .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
-          .mergeFrom(queriedRecord.getRecord()).build())
         .map(r -> {
-          LOGGER.trace("found a record to delete: {}", r);
+          LOGGER.trace("found a record to compact: {}", r.getPrimaryKey());
           return r;
         })
-        .map(record -> fdbRecordStore.deleteRecord(Tuple.from(record.getKey().toByteArray(), record.getVersion())))
+        .map(record -> fdbRecordStore.deleteRecord(record.getPrimaryKey()))
         .getCount()
         .join();
     });
@@ -334,7 +284,6 @@ public class EtcdRecordLayer {
     }).join();
 
     LOGGER.info("we have around {} ETCD records", stat);
-
     return stat;
   }
 
@@ -418,13 +367,13 @@ public class EtcdRecordLayer {
     LOGGER.trace("deleted {} records with lease {}", count, leaseID);
   }
 
-  public void put(String tenantID, EtcdIoRpcProto.WatchCreateRequest createRequest) {
-    LOGGER.debug("storing watch {}", createRequest);
+  public long put(String tenantID, EtcdIoRpcProto.WatchCreateRequest watchCreateRequest) {
+    LOGGER.debug("storing watch {}", watchCreateRequest);
 
     EtcdRecord.Watch record = EtcdRecord.Watch.newBuilder()
-      .setKey(createRequest.getKey())
-      .setRangeEnd(createRequest.getRangeEnd())
-      .setWatchId(createRequest.getWatchId())
+      .setKey(watchCreateRequest.getKey())
+      .setRangeEnd(watchCreateRequest.getRangeEnd())
+      .setWatchId(watchCreateRequest.getWatchId())
       .build();
 
     db.run(context -> {
@@ -432,6 +381,10 @@ public class EtcdRecordLayer {
       recordStore.saveRecord(record);
       return null;
     });
+
+    // TODO: find a cleaner way to retrieve a readVersion.
+    // I tried retrieving commitVersion after commit above but it is failing
+    return db.run(FDBRecordContext::getReadVersion);
   }
 
   public void deleteWatch(String tenantID, long watchId) {
@@ -440,6 +393,73 @@ public class EtcdRecordLayer {
       recordStore.deleteRecord(Tuple.from(watchId));
       return null;
     });
+  }
+
+  public LatestOperations retrieveLatestOperations(String tenantId, long lastCommitedVersion, QueryComponent keyQueryFilter) {
+    AtomicLong readVersion = new AtomicLong();
+    List<EtcdIoKvProto.Event> events = db.run(context -> {
+      FDBRecordStore recordStore = createFDBRecordStore(context, tenantId);
+
+      readVersion.set(context.getReadVersion());
+      return runWatchQuery(recordStore, createWatchQuery(lastCommitedVersion, keyQueryFilter), lastCommitedVersion);
+    });
+
+    return new LatestOperations(readVersion.get(), events);
+  }
+
+
+  private List<EtcdIoKvProto.Event> runWatchQuery(FDBRecordStore fdbRecordStore, RecordQuery query, long lastCommitedVersion) {
+
+    long now = System.currentTimeMillis();
+    // this returns an asynchronous cursor over the results of our query
+    return fdbRecordStore
+      // this returns an asynchronous cursor over the results of our query
+      .executeQuery(query, null, ExecuteProperties.newBuilder().setReturnedRowLimit(1000).build())
+      .map(queriedRecord -> {
+        EtcdRecord.KeyValue record = EtcdRecord.KeyValue.newBuilder()
+          .mergeFrom(queriedRecord.getRecord()).build();
+        if (queriedRecord.getVersion() != null) {
+          LOGGER.trace("found a record to forward to Watcher: {}. Commit version: {} > {}", record, queriedRecord.getVersion().getDBVersion(), lastCommitedVersion);
+        }
+        return record;
+      })
+      // filter according to the lease
+      .filter(record -> filterRecordWithExpiredLease(now, record, fdbRecordStore))
+      .map(record -> {
+        EtcdIoKvProto.Event.EventType eventType = record.getIsDeleted() ? EtcdIoKvProto.Event.EventType.DELETE : EtcdIoKvProto.Event.EventType.PUT;
+        try {
+          return EtcdIoKvProto.Event.newBuilder()
+            .setType(eventType)
+            .setKv(EtcdIoKvProto.KeyValue.newBuilder().mergeFrom(record.toByteArray()).build()).build();
+        } catch (InvalidProtocolBufferException e) {
+          e.printStackTrace();
+          return null;
+        }
+      })
+      .filter(Objects::nonNull)
+      .asList().join();
+  }
+
+  private Boolean filterRecordWithExpiredLease(long now, EtcdRecord.KeyValue record, FDBRecordStore fdbRecordStore) {
+    if (record.getLease() == 0) {
+      // no lease
+      return true;
+    }
+    // the record has a lease, retrieve it
+    FDBStoredRecord<Message> leaseMsg = fdbRecordStore
+      .loadRecord(Tuple.from(record.getLease()));
+    if (leaseMsg == null) {
+      LOGGER.debug("record '{}' has a lease '{}' that can not be found, filtering",
+        record.getKey().toStringUtf8(), record.getLease());
+      return false;
+    }
+    EtcdRecord.Lease lease = EtcdRecord.Lease.newBuilder().mergeFrom(leaseMsg.getRecord()).build();
+    if (now > lease.getInsertTimestamp() + lease.getTTL() * 1000) {
+      LOGGER.debug("record '{}' has a lease '{}' that has expired, filtering",
+        record.getKey().toStringUtf8(), record.getLease());
+      return false;
+    }
+    return true;
   }
 
   private List<EtcdRecord.KeyValue> runQuery(FDBRecordStore fdbRecordStore, FDBRecordContext context, RecordQuery query) {
@@ -452,28 +472,8 @@ public class EtcdRecordLayer {
       .map(queriedRecord -> EtcdRecord.KeyValue.newBuilder()
         .mergeFrom(queriedRecord.getRecord()).build())
       // filter according to the lease
-      .filter(record -> {
-        if (record.getLease() == 0) {
-          // no lease
-          return true;
-        }
-        // the record has a lease, retrieve it
-        FDBStoredRecord<Message> leaseMsg = fdbRecordStore
-          .loadRecord(Tuple.from(record.getLease()));
-        if (leaseMsg == null) {
-          LOGGER.debug("record '{}' has a lease '{}' that can not be found, filtering",
-            record.getKey().toStringUtf8(), record.getLease());
-          return false;
-        }
-        EtcdRecord.Lease lease = EtcdRecord.Lease.newBuilder().mergeFrom(leaseMsg.getRecord()).build();
-        if (now > lease.getInsertTimestamp() + lease.getTTL() * 1000) {
-          LOGGER.debug("record '{}' has a lease '{}' that has expired, filtering",
-            record.getKey().toStringUtf8(), record.getLease());
-          return false;
-        }
-
-        return true;
-      }).asList().join();
+      .filter(record -> filterRecordWithExpiredLease(now, record, fdbRecordStore))
+      .asList().join();
   }
 
   public FDBRecordStore createFDBRecordStore(FDBRecordContext context, String tenant) {
@@ -483,11 +483,14 @@ public class EtcdRecordLayer {
 
     RecordMetaData recordMetada = createEtcdRecordMetadata();
 
-    return FDBRecordStore.newBuilder()
+    // Helper func
+    Function<FDBRecordContext, FDBRecordStore> recordStoreProvider = context2 -> FDBRecordStore.newBuilder()
       .setMetaDataProvider(recordMetada)
       .setContext(context)
       .setKeySpacePath(path)
       .createOrOpen();
+
+    return recordStoreProvider.apply(context);
   }
 
   private RecordMetaData createEtcdRecordMetadata() {
@@ -539,11 +542,21 @@ public class EtcdRecordLayer {
     metadataBuilder.addIndex("KeyValue", new Index(
       "keyvalue-modversion", Key.Expressions.field("mod_revision"), IndexTypes.VALUE));
 
+    metadataBuilder.addIndex("KeyValue", new Index(
+      "keyvalue-deleted", Key.Expressions.field("is_deleted"), IndexTypes.VALUE));
+
+    metadataBuilder.addIndex("KeyValue", new Index(
+      "keyvalue-compaction-index", Key.Expressions.field("remove_during_compaction"), IndexTypes.VALUE));
+
     // add an index to easily retrieve the max version for a given key, instead of scanning
     metadataBuilder.addIndex("KeyValue", INDEX_VERSION_PER_KEY);
+
+    // keep tracks of keyvalue versionstamp
+    metadataBuilder.addIndex("KeyValue", VERSIONSTAMP_INDEX);
 
     // add a global index that will count all records and updates
     metadataBuilder.addUniversalIndex(COUNT_INDEX);
   }
+
 
 }

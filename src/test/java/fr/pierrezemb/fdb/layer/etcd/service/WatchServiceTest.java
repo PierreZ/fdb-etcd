@@ -1,7 +1,8 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
-import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
+import fr.pierrezemb.fdb.layer.etcd.AbstractFDBContainer;
 import fr.pierrezemb.fdb.layer.etcd.MainVerticle;
+import fr.pierrezemb.fdb.layer.etcd.PortManager;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
 import io.etcd.jetcd.Watch.Watcher;
@@ -35,23 +36,24 @@ import static org.junit.Assert.assertNotNull;
 @ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class WatchServiceTest {
-  private final FoundationDBContainer container = new FoundationDBContainer();
+public class WatchServiceTest extends AbstractFDBContainer {
+  public final int port = PortManager.nextFreePort();
   private Client client;
 
   @BeforeAll
   void deploy_verticle(Vertx vertx, VertxTestContext testContext) throws IOException, InterruptedException {
 
-    container.start();
-    File clusterFile = container.getClusterFile();
+    File clusterFile = container.clearAndGetClusterFile();
 
     DeploymentOptions options = new DeploymentOptions()
-      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFile.getAbsolutePath())
+      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFile.getAbsolutePath()).put("listen-port", port)
       );
 
     // deploy verticle
-    vertx.deployVerticle(new MainVerticle(), options, testContext.succeeding(id -> testContext.completeNow()));
-    client = Client.builder().endpoints("http://localhost:8080").build();
+    vertx.deployVerticle(new MainVerticle(), options, testContext.succeeding(id -> {
+      client = Client.builder().endpoints("http://localhost:" + port).build();
+      testContext.completeNow();
+    }));
 
   }
 
@@ -62,7 +64,6 @@ public class WatchServiceTest {
     final CountDownLatch latch = new CountDownLatch(1);
     final ByteSequence value = randomByteSequence();
     final AtomicReference<WatchResponse> ref = new AtomicReference<>();
-
 
     try (Watcher watcher = client.getWatchClient().watch(key, response -> {
       ref.set(response);
@@ -98,7 +99,7 @@ public class WatchServiceTest {
       latch.countDown();
     })) {
 
-      Thread.sleep(500);
+      Thread.sleep(1000);
 
       client.getKVClient().put(key, value).get();
       latch.await(4, TimeUnit.SECONDS);
@@ -115,21 +116,27 @@ public class WatchServiceTest {
   @Test
   @Order(3)
   public void testWatchRangeOnDelete() throws Exception {
-    final ByteSequence key = ByteSequence.from("b", Charset.defaultCharset());
-    final CountDownLatch latch = new CountDownLatch(1);
+    final ByteSequence key = ByteSequence.from("g", Charset.defaultCharset());
+    final ByteSequence value = randomByteSequence();
+    final CountDownLatch latch = new CountDownLatch(2);
     final AtomicReference<WatchResponse> ref = new AtomicReference<>();
 
-    try (Watcher watcher = client.getWatchClient().watch(ByteSequence.from("a", Charset.defaultCharset()), WatchOption.newBuilder()
-      .withRange(ByteSequence.from("c", Charset.defaultCharset()))
+    client.getKVClient().put(key, value).get();
+
+    try (Watcher watcher = client.getWatchClient().watch(ByteSequence.from("f", Charset.defaultCharset()), WatchOption.newBuilder()
+      .withRange(ByteSequence.from("h", Charset.defaultCharset()))
       .build(), response -> {
       ref.set(response);
       latch.countDown();
     })) {
 
-      Thread.sleep(500);
+      Thread.sleep(1000);
 
+      System.out.println("start deleting");
       client.getKVClient().delete(key).get();
+      System.out.println("deleted");
       latch.await(4, TimeUnit.SECONDS);
+      System.out.println("checking");
       watcher.close();
 
       assertNotNull(ref.get());
