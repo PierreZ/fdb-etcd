@@ -91,31 +91,37 @@ public class WatchService extends WatchGrpc.WatchImplBase {
     String address = tenantId + createRequest.getWatchId();
 
     WatchVerticle verticle = new WatchVerticle(tenantId, createRequest.getWatchId(), recordLayer, commitVersion, createRequest.getKey(), createRequest.getRangeEnd());
-    vertx.deployVerticle(verticle);
-    this.verticleMap.put(address, verticle);
+    vertx.deployVerticle(verticle, res -> {
+      if (res.succeeded()) {
+        log.debug("Deployment id is {}", res.result());
+        this.verticleMap.put(address, verticle);
 
-    // and then watch for events
-    this.vertx.eventBus().consumer(address, message -> {
-      if (!(message.body() instanceof byte[])) {
-        return;
-      }
+        // and then watch for events
+        this.vertx.eventBus().consumer(address, message -> {
+          if (!(message.body() instanceof byte[])) {
+            return;
+          }
 
-      try {
-        EtcdIoKvProto.Event event = EtcdIoKvProto.Event.newBuilder().mergeFrom((byte[]) message.body()).build();
-        responseObserver
-          .onNext(EtcdIoRpcProto.WatchResponse.newBuilder()
-            .setHeader(EtcdIoRpcProto.ResponseHeader.newBuilder().build())
-            .addEvents(event)
-            .setWatchId(createRequest.getWatchId())
-            .build());
-      } catch (StatusRuntimeException e) {
-        if (e.getStatus().equals(Status.CANCELLED)) {
-          log.warn("connection was closed, closing verticle");
-          return;
-        }
-        log.error("cought an error writing response: {}", e.getMessage());
-      } catch (InvalidProtocolBufferException e) {
-        log.warn("cannot deserialize, skipping");
+          try {
+            EtcdIoKvProto.Event event = EtcdIoKvProto.Event.newBuilder().mergeFrom((byte[]) message.body()).build();
+            responseObserver
+              .onNext(EtcdIoRpcProto.WatchResponse.newBuilder()
+                .setHeader(EtcdIoRpcProto.ResponseHeader.newBuilder().build())
+                .addEvents(event)
+                .setWatchId(createRequest.getWatchId())
+                .build());
+          } catch (StatusRuntimeException e) {
+            if (e.getStatus().equals(Status.CANCELLED)) {
+              log.warn("connection was closed, closing verticle");
+              return;
+            }
+            log.error("cought an error writing response: {}", e.getMessage());
+          } catch (InvalidProtocolBufferException e) {
+            log.warn("cannot deserialize, skipping");
+          }
+        });
+      } else {
+        log.error("Deployment failed: ", res.cause());
       }
     });
   }

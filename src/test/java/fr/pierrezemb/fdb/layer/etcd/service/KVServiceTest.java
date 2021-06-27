@@ -1,7 +1,8 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
-import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
+import fr.pierrezemb.fdb.layer.etcd.AbstractFDBContainer;
 import fr.pierrezemb.fdb.layer.etcd.MainVerticle;
+import fr.pierrezemb.fdb.layer.etcd.PortManager;
 import fr.pierrezemb.fdb.layer.etcd.TestUtil;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
@@ -21,7 +22,6 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
@@ -47,14 +47,14 @@ import static org.junit.Assert.assertTrue;
  */
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class KVServiceTest {
+public class KVServiceTest extends AbstractFDBContainer {
 
   private static final ByteSequence SAMPLE_KEY = ByteSequence.from("sample_key".getBytes());
   private static final ByteSequence SAMPLE_VALUE = ByteSequence.from("sample_value".getBytes());
   private static final ByteSequence SAMPLE_KEY_2 = ByteSequence.from("sample_key2".getBytes());
   private static final ByteSequence SAMPLE_VALUE_2 = ByteSequence.from("sample_value2".getBytes());
   private static final ByteSequence SAMPLE_KEY_3 = ByteSequence.from("sample_key3".getBytes());
-  private final FoundationDBContainer container = new FoundationDBContainer();
+  public final int port = PortManager.nextFreePort();
   private KV kvClient;
   private Client client;
   private File clusterFile;
@@ -62,21 +62,23 @@ public class KVServiceTest {
   @BeforeAll
   void deploy_verticle(Vertx vertx, VertxTestContext testContext) throws IOException, InterruptedException {
 
-    container.start();
-    clusterFile = container.getClusterFile();
+    clusterFile = container.clearAndGetClusterFile();
 
     DeploymentOptions options = new DeploymentOptions()
-      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFile.getAbsolutePath())
+      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFile.getAbsolutePath()).put("listen-port", port)
       );
 
     // deploy verticle
-    vertx.deployVerticle(new MainVerticle(), options, testContext.succeeding(id -> testContext.completeNow()));
+    vertx.deployVerticle(new MainVerticle(), options, testContext.succeeding(id -> {
+      // create client
+      client = Client.builder().endpoints("http://localhost:" + port).build();
+      // uncomment this to test on real etcd
+      // client = Client.builder().endpoints("http://localhost:2379").build();
+      kvClient = client.getKVClient();
 
-    // create client
-    client = Client.builder().endpoints("http://localhost:8080").build();
-    // uncomment this to test on real etcd
-    // client = Client.builder().endpoints("http://localhost:2379").build();
-    kvClient = client.getKVClient();
+      testContext.completeNow();
+    }));
+
   }
 
   @Test
@@ -268,9 +270,4 @@ public class KVServiceTest {
     assertEquals("should be empty", 0, getAfterCompact.getKvs().size());
   }
 
-  @AfterAll
-  void tearDown() {
-    container.stop();
-    clusterFile.delete();
-  }
 }

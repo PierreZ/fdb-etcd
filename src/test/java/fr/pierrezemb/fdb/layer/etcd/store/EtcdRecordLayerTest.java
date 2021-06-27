@@ -2,8 +2,7 @@ package fr.pierrezemb.fdb.layer.etcd.store;
 
 import com.google.protobuf.ByteString;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
-import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
-import org.junit.jupiter.api.AfterAll;
+import fr.pierrezemb.fdb.layer.etcd.AbstractFDBContainer;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -18,16 +17,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class EtcdRecordLayerTest {
+class EtcdRecordLayerTest extends AbstractFDBContainer {
 
   private static final String TENANT = "my-tenant";
-  private final FoundationDBContainer container = new FoundationDBContainer();
   private EtcdRecordLayer recordLayer;
 
   @BeforeAll
   void setUp() throws IOException, InterruptedException, ExecutionException, TimeoutException {
-    container.start();
-    this.recordLayer = new EtcdRecordLayer(container.getClusterFile().getAbsolutePath());
+    this.recordLayer = new EtcdRecordLayer(container.clearAndGetClusterFile().getAbsolutePath());
   }
 
   @Test
@@ -71,8 +68,4 @@ class EtcdRecordLayerTest {
 
   }
 
-  @AfterAll
-  void tearsDown() {
-    container.stop();
-  }
 }

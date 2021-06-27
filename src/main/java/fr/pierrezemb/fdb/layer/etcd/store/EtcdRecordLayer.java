@@ -173,7 +173,7 @@ public class EtcdRecordLayer {
         .build();
 
       fdbRecordStore.saveRecord(fixedRecord);
-      LOGGER.trace("successfully put record {}", fixedRecord.toString());
+      LOGGER.trace("successfully put record {}", fixedRecord);
 
       return fixedRecord;
     });

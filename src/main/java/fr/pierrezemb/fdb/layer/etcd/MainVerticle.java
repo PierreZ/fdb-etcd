@@ -37,7 +37,10 @@ public class MainVerticle extends AbstractVerticle {
 
     server.start(ar -> {
       if (ar.succeeded()) {
-        System.out.println("gRPC service started");
+        System.out.println("gRPC service started on "
+          + this.context.config().getString("listen-address", "localhost")
+          + ":"
+          + this.context.config().getInteger("listen-port", 8080));
         startPromise.complete();
       } else {
         System.out.println("Could not start server " + ar.cause().getMessage());

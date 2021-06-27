@@ -1,7 +1,8 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
-import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
+import fr.pierrezemb.fdb.layer.etcd.AbstractFDBContainer;
 import fr.pierrezemb.fdb.layer.etcd.MainVerticle;
+import fr.pierrezemb.fdb.layer.etcd.PortManager;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
 import io.etcd.jetcd.KV;
@@ -27,26 +28,26 @@ import static org.junit.Assert.assertNotNull;
 
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class AuthServiceTest {
+public class AuthServiceTest extends AbstractFDBContainer {
 
   private static final ByteSequence SAMPLE_KEY = ByteSequence.from("sample_key".getBytes());
   private static final ByteSequence SAMPLE_VALUE = ByteSequence.from("sample_value".getBytes());
   private static final ByteSequence SAMPLE_KEY_2 = ByteSequence.from("sample_key2".getBytes());
   private static final ByteSequence SAMPLE_VALUE_2 = ByteSequence.from("sample_value2".getBytes());
   private static final ByteSequence SAMPLE_KEY_3 = ByteSequence.from("sample_key3".getBytes());
+  public final int port = PortManager.nextFreePort();
 
-  private final FoundationDBContainer container = new FoundationDBContainer();
   private File clusterFile;
 
   @BeforeAll
   void deploy_verticle(Vertx vertx, VertxTestContext testContext) throws IOException, InterruptedException {
 
-    container.start();
-    clusterFile = container.getClusterFile();
+    clusterFile = container.clearAndGetClusterFile();
 
     DeploymentOptions options = new DeploymentOptions()
       .setConfig(new JsonObject()
         .put("fdb-cluster-file", clusterFile.getAbsolutePath())
+        .put("listen-port", port)
         .put("auth-enabled", true)
       );
 
@@ -57,7 +58,7 @@ public class AuthServiceTest {
   @Test
   public void basicTestAuth() throws Exception {
     final Client rootClient = Client.builder()
-      .endpoints("http://localhost:8080")
+      .endpoints("http://localhost:" + port)
       .user(ByteSequence.from("root".getBytes()))
       .password(ByteSequence.from("roopasswd".getBytes())).build();
 
@@ -68,7 +69,7 @@ public class AuthServiceTest {
     assertFalse(response.hasPrevKv());
 
     final Client anotherUserClient = Client.builder()
-      .endpoints("http://localhost:8080")
+      .endpoints("http://localhost:" + port)
       .user(ByteSequence.from("pierre".getBytes()))
       .password(ByteSequence.from("whatever".getBytes())).build();
 

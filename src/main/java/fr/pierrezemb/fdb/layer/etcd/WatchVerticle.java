@@ -7,7 +7,7 @@ import com.google.protobuf.ByteString;
 import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordLayer;
 import fr.pierrezemb.fdb.layer.etcd.store.LatestOperations;
 import io.vertx.core.AbstractVerticle;
-import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,15 +40,17 @@ public class WatchVerticle extends AbstractVerticle {
       );
   }
 
-  public void start(Future<Void> startFuture) throws Exception {
-    log.trace("starting timer");
+  @Override
+  public void start(Promise<Void> startPromise) throws Exception {
+    super.start(startPromise);
+    log.debug("started WatchService {}/{}", tenantId, this.watchID);
     this.timerID = vertx.setTimer(10, id -> {
       this.poll();
     });
   }
 
   private void poll() {
-    long nextPollMS = 500;
+    long nextPollMS = 100;
     try {
       mutex.acquire();
       log.trace("poll started");

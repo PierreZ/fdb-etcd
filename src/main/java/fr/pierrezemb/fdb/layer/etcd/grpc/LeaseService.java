@@ -1,11 +1,9 @@
 package fr.pierrezemb.fdb.layer.etcd.grpc;
 
 import etcdserverpb.EtcdIoRpcProto;
-import etcdserverpb.LeaseGrpc;
 import etcdserverpb.VertxLeaseGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordLayer;
-import io.grpc.stub.StreamObserver;
 import io.vertx.core.Future;
 import io.vertx.core.streams.ReadStream;
 import io.vertx.core.streams.WriteStream;

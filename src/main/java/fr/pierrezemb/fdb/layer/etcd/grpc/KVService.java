@@ -2,13 +2,11 @@ package fr.pierrezemb.fdb.layer.etcd.grpc;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import etcdserverpb.EtcdIoRpcProto;
-import etcdserverpb.KVGrpc;
 import etcdserverpb.VertxKVGrpc;
 import fr.pierrezemb.etcd.record.pb.EtcdRecord;
 import fr.pierrezemb.fdb.layer.etcd.store.EtcdRecordLayer;
 import fr.pierrezemb.fdb.layer.etcd.utils.ProtoUtils;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import mvccpb.EtcdIoKvProto;
 
 import java.util.ArrayList;
@@ -108,7 +106,7 @@ public class KVService extends VertxKVGrpc.KVVertxImplBase {
     } catch (InvalidProtocolBufferException e) {
       return Future.failedFuture(e);
     }
-    return Future.succeededFuture( EtcdIoRpcProto
+    return Future.succeededFuture(EtcdIoRpcProto
       .PutResponse.newBuilder()
       .setHeader(
         EtcdIoRpcProto.ResponseHeader.newBuilder().setRevision(put.getModRevision()).build()

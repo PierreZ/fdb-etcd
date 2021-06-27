@@ -1,7 +1,8 @@
 package fr.pierrezemb.fdb.layer.etcd.service;
 
-import fr.pierrezemb.fdb.layer.etcd.FoundationDBContainer;
+import fr.pierrezemb.fdb.layer.etcd.AbstractFDBContainer;
 import fr.pierrezemb.fdb.layer.etcd.MainVerticle;
+import fr.pierrezemb.fdb.layer.etcd.PortManager;
 import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.Client;
 import io.etcd.jetcd.Watch.Watcher;
@@ -35,23 +36,24 @@ import static org.junit.Assert.assertNotNull;
 @ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class WatchServiceTest {
-  private final FoundationDBContainer container = new FoundationDBContainer();
+public class WatchServiceTest extends AbstractFDBContainer {
+  public final int port = PortManager.nextFreePort();
   private Client client;
 
   @BeforeAll
   void deploy_verticle(Vertx vertx, VertxTestContext testContext) throws IOException, InterruptedException {
 
-    container.start();
-    File clusterFile = container.getClusterFile();
+    File clusterFile = container.clearAndGetClusterFile();
 
     DeploymentOptions options = new DeploymentOptions()
-      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFile.getAbsolutePath())
+      .setConfig(new JsonObject().put("fdb-cluster-file", clusterFile.getAbsolutePath()).put("listen-port", port)
       );
 
     // deploy verticle
-    vertx.deployVerticle(new MainVerticle(), options, testContext.succeeding(id -> testContext.completeNow()));
-    client = Client.builder().endpoints("http://localhost:8080").build();
+    vertx.deployVerticle(new MainVerticle(), options, testContext.succeeding(id -> {
+      client = Client.builder().endpoints("http://localhost:" + port).build();
+      testContext.completeNow();
+    }));
 
   }
 
